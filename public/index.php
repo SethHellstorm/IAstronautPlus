@@ -6,7 +6,7 @@ require __DIR__ . "/../app/bootstrap.php";
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Astronauta IA VR</title>
+  <title>IAstronaut VR</title>
   <style>
     html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; }
     canvas { display:block; width:100%; height:100%; }
@@ -18,7 +18,7 @@ require __DIR__ . "/../app/bootstrap.php";
   </script>
   <canvas id="renderCanvas"></canvas>
 
-  <!-- Three.js + WebXRButton -->
+  
   <script type="importmap">
     {
       "imports": {
@@ -35,6 +35,6 @@ require __DIR__ . "/../app/bootstrap.php";
     window.VRButton = VRButton;
   </script>
 
-  <script type="module" src="<?= asset('js/astronauta/threeScene.js') ?>"></script>
+  <script type="module" src="<?= asset('js/iastronaut/threeScene.js') ?>"></script>
 </body>
 </html>
