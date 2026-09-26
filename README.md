@@ -150,3 +150,7 @@ Durante el modo de exploración, la terminal y los paneles auxiliares pueden ocu
 
 ## Licencia
 GPLv3
+
+## Sincronización de sesiones
+
+Prototipo integrado de sincronización PHP/MySQL: [configuración, rutas y pruebas](docs/sincronizacion.md).

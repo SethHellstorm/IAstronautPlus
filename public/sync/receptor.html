@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sincronización · Receptor</title>
+
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 650px;
+            margin: 40px auto;
+            padding: 24px;
+            background: #101827;
+            color: white;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 12px;
+        }
+
+        input, button {
+            box-sizing: border-box;
+            padding: 16px;
+            font-size: 20px;
+            margin-bottom: 16px;
+        }
+
+        input {
+            width: 100%;
+            text-transform: uppercase;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+
+        #mensaje {
+            line-height: 1.6;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Vincular computadora</h1>
+
+    <p>Introduce el código que aparece en la página emisora.</p>
+
+    <form id="formulario">
+        <label for="codigo">Código de vinculación</label>
+
+        <input
+            id="codigo"
+            name="codigo"
+            type="text"
+            minlength="6"
+            maxlength="6"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            required
+        >
+
+        <button id="vincular" type="submit">Vincular sesión</button>
+    </form>
+
+    <p id="mensaje" role="status" aria-live="polite">
+        Todavía no estás vinculado.
+    </p>
+    <section>
+    <h2>Eventos recibidos</h2>
+
+    <p id="estadoRecepcion" role="status" aria-live="polite">
+        Vincula una sesión para comenzar.
+    </p>
+
+    <ul id="listaEventos"></ul>
+</section>
+
+    <script>
+        const formulario = document.getElementById('formulario');
+        const entradaCodigo = document.getElementById('codigo');
+        const botonVincular = document.getElementById('vincular');
+        const mensaje = document.getElementById('mensaje');
+
+        let sesionReceptora = null;
+        const CLAVE_SESION_RECEPTORA = 'iastronaut_sync_receptor';
+        const estadoRecepcion = document.getElementById('estadoRecepcion');
+        const listaEventos = document.getElementById('listaEventos');
+
+        // Evita mostrar varias veces el mismo evento durante esta página abierta.
+        const eventosMostrados = new Set();
+        const confirmacionesPendientes = new Set();
+
+        async function confirmarEvento(eventoId) {
+            const respuesta = await fetch('../api/sync/confirmar-evento.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer ' + sesionReceptora.token_receptor
+                },
+                body: JSON.stringify({ evento_id: eventoId }),
+                cache: 'no-store',
+                signal: AbortSignal.timeout(8000)
+        });
+
+        const datos = await respuesta.json();
+
+        if (!respuesta.ok) {
+            const error = new Error(
+                datos.error || 'No se pudo confirmar el evento.'
+            );
+
+            error.status = respuesta.status;
+            throw error;
+        }
+
+        if (datos.confirmado !== true || datos.evento_id !== eventoId) {
+            throw new Error('Respuesta de confirmación no válida.');
+        }
+    }
+
+        async function consultarEventos() {
+            if (!sesionReceptora) return;
+
+            let continuar = true;
+
+            try {
+                const respuesta = await fetch('../api/sync/recibir-eventos.php', {
+                    method: 'GET',
+                    headers: {
+                        Authorization: 'Bearer ' + sesionReceptora.token_receptor
+                    },
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(8000)
+                });
+
+                const datos = await respuesta.json();
+
+                if (!respuesta.ok) {
+                    if ([401, 403, 410].includes(respuesta.status)) {
+                    continuar = false;
+                }
+
+                throw new Error(
+                    datos.error || 'No se pudieron consultar los eventos.'
+                );
+            }
+
+            if (!Array.isArray(datos.eventos)) {
+                throw new Error('El servidor devolvió una respuesta no válida.');
+            }
+
+            mensaje.textContent = 'Computadora vinculada a la sesión ' + sesionReceptora.codigo + '.';
+
+            for (const evento of datos.eventos) {
+                if (eventosMostrados.has(evento.id)) {
+                    continue;
+                }
+
+                const elemento = document.createElement('li');
+
+                elemento.textContent =
+                    'Evento ' + evento.id +
+                    ' · ' + evento.tipo +
+                    ' · ' + (evento.datos?.mensaje ?? 'Sin mensaje');
+
+                listaEventos.appendChild(elemento);
+                eventosMostrados.add(evento.id);
+                confirmacionesPendientes.add(evento.id);
+            }
+            for (const eventoId of confirmacionesPendientes) {
+                await confirmarEvento(eventoId);
+                confirmacionesPendientes.delete(eventoId);
+        }
+
+            estadoRecepcion.textContent =
+                'Escuchando. Mostrados: ' + eventosMostrados.size +
+                '. Confirmaciones pendientes: ' + confirmacionesPendientes.size + '.';
+        } catch (error) {
+            if ([401, 403, 410].includes(error.status)) {
+                continuar = false;
+            }
+
+            if (!continuar) {
+                try { sessionStorage.removeItem(CLAVE_SESION_RECEPTORA); } catch (_) {}
+                sesionReceptora = null;
+                mensaje.textContent = 'La sesión ya no está disponible. Recarga para vincular una nueva.';
+            }
+
+            estadoRecepcion.textContent = continuar
+                ? 'Falló una consulta o confirmación. Reintentando…'
+                : error.message + ' Crea y vincula una sesión nueva.';
+        }
+
+        if (continuar) {
+            setTimeout(consultarEventos, 2000);
+        }
+    }
+
+        formulario.addEventListener('submit', async (evento) => {
+            evento.preventDefault();
+
+            const codigo = entradaCodigo.value.trim().toUpperCase();
+
+            if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(codigo)) {
+                mensaje.textContent = 'Introduce un código válido de seis caracteres.';
+                return;
+            }
+
+            botonVincular.disabled = true;
+            entradaCodigo.disabled = true;
+            mensaje.textContent = 'Vinculando…';
+
+            try {
+                const respuesta = await fetch('../api/sync/vincular-sesion.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    cache: 'no-store',
+                    body: JSON.stringify({ codigo })
+                });
+
+                const datos = await respuesta.json();
+
+                if (!respuesta.ok) {
+                    throw new Error(
+                        datos.error || 'No se pudo vincular la sesión.'
+                    );
+                }
+
+                if (typeof datos.token_receptor !== 'string') {
+                    throw new Error('La respuesta no contiene la credencial del receptor.');
+                }
+
+                sesionReceptora = datos;
+
+                try {
+                    sessionStorage.setItem(
+                        CLAVE_SESION_RECEPTORA,
+                        JSON.stringify(sesionReceptora)
+                    );
+                } catch (error) {
+                    console.warn('No se pudo guardar la sesión receptora.');
+                }
+
+                mensaje.textContent =
+                    'Computadora vinculada a la sesión ' +
+                    sesionReceptora.codigo +
+                    '.';
+
+                botonVincular.textContent = 'Sesión vinculada';
+                consultarEventos();
+            } catch (error) {
+                mensaje.textContent = 'Error: ' + error.message;
+                botonVincular.disabled = false;
+                entradaCodigo.disabled = false;
+            }
+        });
+        
+        function recuperarSesionReceptora() {
+            let guardada;
+
+        try {
+            const texto = sessionStorage.getItem(CLAVE_SESION_RECEPTORA);
+
+            if (!texto) return;
+
+            guardada = JSON.parse(texto);
+
+            if (
+                !guardada ||
+                typeof guardada.codigo !== 'string' ||
+                !/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(guardada.codigo) ||
+                typeof guardada.token_receptor !== 'string' ||
+                !/^[a-f0-9]{64}$/.test(guardada.token_receptor)
+            ) {
+                throw new Error('La sesión guardada no tiene un formato válido.');
+            }
+        } catch (error) {
+            try {
+                sessionStorage.removeItem(CLAVE_SESION_RECEPTORA);
+            } catch (_) {
+                // El almacenamiento puede no estar disponible.
+            }
+
+            mensaje.textContent =
+                'No se pudo recuperar la sesión. Introduce un código nuevo.';
+
+            return;
+        }
+
+        sesionReceptora = guardada;
+
+        entradaCodigo.value = sesionReceptora.codigo;
+        entradaCodigo.disabled = true;
+        botonVincular.disabled = true;
+        botonVincular.textContent = 'Sesión recuperada';
+
+        mensaje.textContent = 'Sesión recuperada. Verificando con el servidor…';
+
+        consultarEventos();
+    }
+        recuperarSesionReceptora();
+    </script>
+</body>
+</html>
