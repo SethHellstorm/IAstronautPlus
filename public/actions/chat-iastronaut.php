@@ -17,6 +17,7 @@ if (!function_exists('curl_init')) {
 }
 
 $root = realpath(__DIR__ . '/../../') ?: dirname(__DIR__, 2);
+require_once $root . '/app/bootstrap.php';
 
 function loadEnvFile(string $path): void {
   if (!is_file($path) || !is_readable($path)) return;
@@ -33,30 +34,6 @@ function loadEnvFile(string $path): void {
   }
 }
 
-function rateLimit(string $identity, int $limit = 72, int $windowSeconds = 300): bool {
-  $key = hash('sha256', $identity);
-  $file = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'iastronaut_rate_' . $key . '.json';
-  $now = time();
-  $handle = @fopen($file, 'c+');
-  if (!$handle) return true;
-  if (!flock($handle, LOCK_EX)) {
-    fclose($handle);
-    return true;
-  }
-  $raw = stream_get_contents($handle);
-  $data = json_decode($raw ?: '{}', true);
-  if (!is_array($data) || ($data['start'] ?? 0) + $windowSeconds <= $now) $data = ['start' => $now, 'count' => 0];
-  $allowed = (int)$data['count'] < $limit;
-  if ($allowed) $data['count'] = (int)$data['count'] + 1;
-  ftruncate($handle, 0);
-  rewind($handle);
-  fwrite($handle, json_encode($data));
-  fflush($handle);
-  flock($handle, LOCK_UN);
-  fclose($handle);
-  return $allowed;
-}
-
 loadEnvFile($root . '/.env');
 
 $apiKey = (string)($_ENV['OPENAI_API_KEY'] ?? getenv('OPENAI_API_KEY') ?? '');
@@ -66,17 +43,20 @@ if ($apiKey === '') {
   exit;
 }
 
-$identity = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
-if (!rateLimit($identity)) {
-  http_response_code(429);
-  echo json_encode(['error' => 'Demasiadas transmisiones. Espera unos minutos antes de volver a intentarlo.'], JSON_UNESCAPED_UNICODE);
-  exit;
-}
-
 $OPENAI_CHAT_MODEL = 'gpt-4o-mini';
 $OPENAI_STT_MODEL = 'gpt-4o-mini-transcribe';
 $OPENAI_TTS_MODEL = 'gpt-4o-mini-tts';
 $OPENAI_TTS_VOICE = 'nova';
+
+$RATE_WINDOW = configEnvInt('IASTRONAUT_RATE_WINDOW', 900, 60, 86400);
+$TEXT_SESSION_LIMIT = configEnvInt('IASTRONAUT_TEXT_SESSION_LIMIT', 60, 1, 2000);
+$TEXT_IP_LIMIT = configEnvInt('IASTRONAUT_TEXT_IP_LIMIT', 300, 1, 5000);
+$AUDIO_SESSION_LIMIT = configEnvInt('IASTRONAUT_AUDIO_SESSION_LIMIT', 24, 1, 1000);
+$AUDIO_IP_LIMIT = configEnvInt('IASTRONAUT_AUDIO_IP_LIMIT', 120, 1, 3000);
+$TTS_SESSION_LIMIT = configEnvInt('IASTRONAUT_TTS_SESSION_LIMIT', 48, 1, 2000);
+$TTS_IP_LIMIT = configEnvInt('IASTRONAUT_TTS_IP_LIMIT', 240, 1, 5000);
+$MAX_JSON_BYTES = configEnvInt('IASTRONAUT_MAX_JSON_BYTES', 65536, 4096, 1048576);
+$MAX_AUDIO_BYTES = configEnvInt('IASTRONAUT_MAX_AUDIO_BYTES', 12582912, 1048576, 52428800);
 
 $system =
   "Eres IAstronaut, la oficial científica y sistema de misión de la nave Operación Helios. Acompañas al tripulante durante una expedición interactiva por el Sistema Solar para restaurar una red de balizas científicas. " .
@@ -84,6 +64,16 @@ $system =
   "Habla desde el contexto ficticio de la nave y no afirmes tener experiencias humanas reales. Usa el estado actual de la operación para dar pistas útiles sin resolver automáticamente todas las actividades. " .
   "Puedes recordar brevemente los mensajes recientes incluidos en la conversación. Responde únicamente con texto plano, sin enlaces, archivos, imágenes, markdown ni emojis. Limita la respuesta a un máximo de 65 palabras. " .
   "Si el usuario pide una orden de misión, confirma la acción de forma breve. Si pregunta algo ajeno al espacio o a la misión, aclara tu función y redirige la conversación.";
+
+function enforceAiRateLimit(string $scope, int $sessionLimit, int $ipLimit, int $windowSeconds): void {
+  $result = consumeRequestLimit($scope, $sessionLimit, $ipLimit, $windowSeconds);
+  if ($result['allowed']) return;
+
+  http_response_code(429);
+  header('Retry-After: ' . (int) $result['retry_after']);
+  echo json_encode(['error' => 'Se alcanzó el límite temporal de la demostración. Intenta nuevamente en unos minutos.'], JSON_UNESCAPED_UNICODE);
+  exit;
+}
 
 function ttsCleanText(string $text): string {
   $text = preg_replace('/\[(.*?)\]\((https?:\/\/[^\s)]+)\)/u', '$1', $text) ?? $text;
@@ -194,22 +184,30 @@ if (stripos($contentType, 'multipart/form-data') !== false && isset($_FILES['aud
   $decodedContext = json_decode((string)($_POST['mission_context'] ?? ''), true);
   if (is_array($decodedContext)) $missionContext = $decodedContext;
   $history = cleanHistory(json_decode((string)($_POST['history'] ?? ''), true));
-  $tmp = $_FILES['audio']['tmp_name'] ?? '';
+  $uploadError = (int) ($_FILES['audio']['error'] ?? UPLOAD_ERR_NO_FILE);
+  $tmp = (string) ($_FILES['audio']['tmp_name'] ?? '');
   $name = cleanValue($_FILES['audio']['name'] ?? 'audio.webm', 120);
-  $size = (int)($_FILES['audio']['size'] ?? 0);
-  if (!$tmp || !is_uploaded_file($tmp) || $size <= 0 || $size > 12 * 1024 * 1024) {
+  $size = (int) ($_FILES['audio']['size'] ?? 0);
+  if ($uploadError !== UPLOAD_ERR_OK || $tmp === '' || !is_uploaded_file($tmp)) {
     http_response_code(400);
-    echo json_encode(['error' => 'La grabación no es válida o supera el límite permitido'], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['error' => 'La grabación recibida no es válida'], JSON_UNESCAPED_UNICODE);
     exit;
   }
-  $uploadType = trim((string)($_FILES['audio']['type'] ?? 'audio/webm'));
-  $mime = trim(explode(';', $uploadType, 2)[0]) ?: 'audio/webm';
+  if ($size <= 0 || $size > $MAX_AUDIO_BYTES) {
+    http_response_code(413);
+    echo json_encode(['error' => 'La grabación supera el tamaño permitido'], JSON_UNESCAPED_UNICODE);
+    exit;
+  }
+  $detectedMime = class_exists('finfo') ? (string) (new finfo(FILEINFO_MIME_TYPE))->file($tmp) : '';
+  $uploadType = trim((string) ($_FILES['audio']['type'] ?? 'audio/webm'));
+  $mime = trim(explode(';', $detectedMime !== '' ? $detectedMime : $uploadType, 2)[0]) ?: 'audio/webm';
   $allowedMimes = ['audio/webm', 'audio/ogg', 'audio/mp4', 'audio/mpeg', 'audio/x-m4a', 'video/webm'];
   if (!in_array($mime, $allowedMimes, true)) {
     http_response_code(415);
     echo json_encode(['error' => 'Formato de audio no compatible'], JSON_UNESCAPED_UNICODE);
     exit;
   }
+  enforceAiRateLimit('iastronaut.audio', $AUDIO_SESSION_LIMIT, $AUDIO_IP_LIMIT, $RATE_WINDOW);
   $file = new CURLFile($tmp, $mime, $name ?: 'audio.webm');
   $transcription = openaiMultipart($apiKey, 'https://api.openai.com/v1/audio/transcriptions', ['file' => $file, 'model' => $OPENAI_STT_MODEL, 'language' => 'es']);
   if (!$transcription['ok']) {
@@ -225,8 +223,18 @@ if (stripos($contentType, 'multipart/form-data') !== false && isset($_FILES['aud
     exit;
   }
 } else {
-  $data = json_decode(file_get_contents('php://input') ?: '', true);
-  if (!is_array($data)) $data = [];
+  $rawBody = file_get_contents('php://input');
+  if (!is_string($rawBody) || strlen($rawBody) > $MAX_JSON_BYTES) {
+    http_response_code(413);
+    echo json_encode(['error' => 'La solicitud supera el tamaño permitido'], JSON_UNESCAPED_UNICODE);
+    exit;
+  }
+  $data = json_decode($rawBody, true);
+  if (!is_array($data)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'La solicitud no contiene datos válidos'], JSON_UNESCAPED_UNICODE);
+    exit;
+  }
   if (!empty($data['tts_only'])) {
     $ttsText = ttsCleanText(cleanValue($data['text'] ?? '', 900));
     if ($ttsText === '') {
@@ -234,6 +242,7 @@ if (stripos($contentType, 'multipart/form-data') !== false && isset($_FILES['aud
       echo json_encode(['error' => 'Texto de voz vacío'], JSON_UNESCAPED_UNICODE);
       exit;
     }
+    enforceAiRateLimit('iastronaut.tts', $TTS_SESSION_LIMIT, $TTS_IP_LIMIT, $RATE_WINDOW);
     $ttsOnly = openaiTTSBase64($apiKey, $OPENAI_TTS_MODEL, $OPENAI_TTS_VOICE, $ttsText);
     if (!$ttsOnly['ok']) {
       error_log('IAstronaut TTS error ' . $ttsOnly['code'] . ': ' . $ttsOnly['err']);
@@ -253,6 +262,12 @@ if (stripos($contentType, 'multipart/form-data') !== false && isset($_FILES['aud
     echo json_encode(['error' => 'Mensaje vacío'], JSON_UNESCAPED_UNICODE);
     exit;
   }
+  enforceAiRateLimit(
+    $wantAudio ? 'iastronaut.audio' : 'iastronaut.text',
+    $wantAudio ? $AUDIO_SESSION_LIMIT : $TEXT_SESSION_LIMIT,
+    $wantAudio ? $AUDIO_IP_LIMIT : $TEXT_IP_LIMIT,
+    $RATE_WINDOW
+  );
 }
 
 $sceneName = cleanValue($missionContext['scene_name'] ?? '', 60);

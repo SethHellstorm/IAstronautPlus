@@ -365,9 +365,10 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
         }
         catch (error) {
             console.error("sendAudioBlob failed:", error);
+            const serverMessage = String(error?.message || "").trim();
             const message = error?.name === "AbortError"
                 ? "La respuesta tardó demasiado. Intenta nuevamente con una frase más corta."
-                : "No pude procesar tu voz. Verifica la conexión e intenta de nuevo.";
+                : (serverMessage.includes("límite temporal") ? serverMessage : "No pude procesar tu voz. Verifica la conexión e intenta de nuevo.");
             replaceBubble(placeholder, message, "bot");
         }
         finally {
