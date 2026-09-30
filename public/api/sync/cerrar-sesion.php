@@ -4,7 +4,7 @@ require_once dirname(__DIR__, 3) . '/app/sync/funciones.php';
 require_once dirname(__DIR__, 3) . '/app/sync/acceso.php';
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Allow: POST');
-    responder(405, ['error' => 'M?todo no permitido.']);
+    responder(405, ['error' => 'Método no permitido.']);
 }
 try {
     cerrarAccesoSync(conexionAccesoSync());

@@ -57,33 +57,33 @@ Los scripts educativos de terminal permanecen en Testings/privado y su
 conexion.php remite a la configuración nueva. Los archivos web se trasladaron.
 
 
-## Autorizaci?n y cierre de sincronizaci?n
+## Autorización y cierre de sincronización
 
-Aplicar `database/migrations/003_accesos_sincronizacion.sql` despu?s de las
-migraciones anteriores. El acceso con contrase?a se registra en `sync_accesos`
+Aplicar `database/migrations/003_accesos_sincronizacion.sql` después de las
+migraciones anteriores. El acceso con contraseña se registra en `sync_accesos`
 y se asocia a cada rol mediante `sync_acceso_sesiones`.
 
 - Emisor y receptor comprueban el acceso antes de recuperar datos y cada dos segundos.
-- Sin autorizaci?n, se limpian las claves `iastronaut_sync_` de sessionStorage y
-  se abre `acceso.html`. Tras autenticar, siempre se elige una funci?n.
-- Cerrar sesi?n revoca el acceso en MySQL y cierra sus vinculaciones. Tambi?n
+- Sin autorización, se limpian las claves `iastronaut_sync_` de sessionStorage y
+  se abre `acceso.html`. Tras autenticar, siempre se elige una función.
+- Cerrar sesión revoca el acceso en MySQL y cierra sus vinculaciones. También
   revoca el acceso del otro extremo de esas vinculaciones. Si ese acceso tiene
   otras vinculaciones, el cierre se propaga a ellas.
-- Vencimiento, cambio de contrase?a y sincronizaci?n cerrada requieren autenticaci?n
-  y vinculaci?n nuevas. Los tokens anteriores no se aceptan con otro acceso.
-- El servidor comprueba vencimientos antes de cada operaci?n. No requiere un cron:
-  las filas se marcan al atender la siguiente petici?n y no se permite continuar
-  con una autorizaci?n vencida. Un navegador suspendido lo detecta al reanudar.
-- Las sesiones anteriores a la migraci?n, sin asociaci?n de acceso, se cierran al
-  siguiente control. Es necesario ingresar de nuevo y crear una vinculaci?n nueva.
-- Una falla de red o del servidor no borra por s? sola los pendientes. El cierre
-  manual solo se presenta como confirmado despu?s de la respuesta del servidor.
+- Vencimiento, cambio de contraseña y sincronización cerrada requieren autenticación
+  y vinculación nuevas. Los tokens anteriores no se aceptan con otro acceso.
+- El servidor comprueba vencimientos antes de cada operación. No requiere un cron:
+  las filas se marcan al atender la siguiente petición y no se permite continuar
+  con una autorización vencida. Un navegador suspendido lo detecta al reanudar.
+- Las sesiones anteriores a la migración, sin asociación de acceso, se cierran al
+  siguiente control. Es necesario ingresar de nuevo y crear una vinculación nueva.
+- Una falla de red o del servidor no borra por sí sola los pendientes. El cierre
+  manual solo se presenta como confirmado después de la respuesta del servidor.
 
-Las operaciones de autorizaci?n y sync se serializan con un bloqueo MySQL breve
-por base de datos para impedir carreras entre cierre y env?o/vinculaci?n. Se
-libera al terminar la petici?n; el tiempo m?ximo de espera es cinco segundos.
-Para una carga alta convendr? sustituirlo por bloqueos por autorizaci?n/sesi?n.
+Las operaciones de autorización y sync se serializan con un bloqueo MySQL breve
+por base de datos para impedir carreras entre cierre y envío/vinculación. Se
+libera al terminar la petición; el tiempo máximo de espera es cinco segundos.
+Para una carga alta convendrá sustituirlo por bloqueos por autorización/sesión.
 
-La revocaci?n evita nuevas operaciones; no revierte un evento ya procesado.
+La revocación evita nuevas operaciones; no revierte un evento ya procesado.
 Los eventos pendientes de sesiones cerradas permanecen como historial en MySQL,
 pero ya no se entregan. Cerrar el acceso no elimina otras claves del navegador.

@@ -1,4 +1,4 @@
-// Control com?n de las p?ginas emisor y receptor.
+// Control común de las páginas emisor y receptor.
 const ControlAcceso = (() => {
     let terminado = false;
     let temporizador;
@@ -51,7 +51,7 @@ const ControlAcceso = (() => {
             throw errorAcceso();
         }
         accesoId = datos.acceso_id;
-        // Descarta el estado de una autorizaci?n anterior, incluso tras cerrar el navegador.
+        // Descarta el estado de una autorización anterior, incluso tras cerrar el navegador.
         if (sessionStorage.getItem('iastronaut_sync_acceso') !== accesoId) {
             limpiar();
             sessionStorage.setItem('iastronaut_sync_acceso', accesoId);
@@ -62,12 +62,12 @@ const ControlAcceso = (() => {
         try {
             await comprobar();
             const estado = document.getElementById('estadoCierre');
-            if (estado.textContent === 'No se pudo comprobar el acceso. Reintentando?') estado.textContent = '';
+            if (estado.textContent === 'No se pudo comprobar el acceso. Reintentando…') estado.textContent = '';
         }
         catch (e) {
             if (e.codigo !== 'ACCESO_REQUERIDO') {
                 document.getElementById('estadoCierre').textContent =
-                    'No se pudo comprobar el acceso. Reintentando?';
+                    'No se pudo comprobar el acceso. Reintentando…';
             }
         }
         if (!terminado) temporizador = setTimeout(vigilar, 2000);
@@ -77,7 +77,7 @@ const ControlAcceso = (() => {
         const estados = controles.map(e => e.disabled);
         controles.forEach(e => e.disabled = true);
         const mensaje = document.getElementById('mensaje');
-        mensaje.textContent = 'Comprobando acceso?';
+        mensaje.textContent = 'Comprobando acceso…';
         try {
             await comprobar();
             controles.forEach((e, i) => e.disabled = estados[i]);
@@ -92,7 +92,7 @@ const ControlAcceso = (() => {
         const boton = document.getElementById('cerrarAcceso');
         const estado = document.getElementById('estadoCierre');
         boton.disabled = true;
-        estado.textContent = 'Cerrando sesi?n?';
+        estado.textContent = 'Cerrando sesión…';
         try {
             const respuesta = await solicitar('../api/sync/cerrar-sesion.php', {method: 'POST'});
             const datos = await respuesta.json();

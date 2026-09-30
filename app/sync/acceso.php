@@ -27,8 +27,8 @@ function iniciarSesionAccesoSync(): void
         throw new RuntimeException('No se pudo iniciar la sesión de acceso.');
     }
 }
-// El bloqueo breve serializa las operaciones de sync, incluido cierre contra env?o.
-// Se libera al terminar la petici?n incluso si responder() llama exit.
+// El bloqueo breve serializa las operaciones de sync, incluido cierre contra envío.
+// Se libera al terminar la petición incluso si responder() llama exit.
 function conexionAccesoSync(): PDO
 {
     static $pdo = null;
@@ -37,7 +37,7 @@ function conexionAccesoSync(): PDO
     $nombre = hash('sha256', 'sync_' . (string) $pdo->query('SELECT DATABASE()')->fetchColumn());
     $lock = $pdo->prepare('SELECT GET_LOCK(?, 5)');
     $lock->execute([$nombre]);
-    if ((int) $lock->fetchColumn() !== 1) throw new RuntimeException('Sincronizaci?n ocupada.');
+    if ((int) $lock->fetchColumn() !== 1) throw new RuntimeException('Sincronización ocupada.');
     register_shutdown_function(static function () use ($pdo, $nombre): void {
         $q = $pdo->prepare('SELECT RELEASE_LOCK(?)');
         $q->execute([$nombre]);
@@ -108,9 +108,9 @@ function exigirAccesoSync(): void
         $valido = (bool) $q->fetchColumn();
         if (!$valido) unset($_SESSION['sync_acceso']);
         session_write_close();
-        if (!$valido) responder(401, ['error' => 'Debes ingresar la contrase?a.', 'codigo' => 'ACCESO_REQUERIDO']);
+        if (!$valido) responder(401, ['error' => 'Debes ingresar la contraseña.', 'codigo' => 'ACCESO_REQUERIDO']);
         $GLOBALS['sync_acceso_id'] = $id;
-        // Un token antiguo no puede reutilizarse con otra autorizaci?n.
+        // Un token antiguo no puede reutilizarse con otra autorización.
         $bearer = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
         if (preg_match('/^Bearer ([a-f0-9]{64})$/', $bearer, $m)) {
             $token = hash('sha256', $m[1]);
@@ -120,7 +120,7 @@ function exigirAccesoSync(): void
             $q->execute([$id, $token, $token]);
             if (!$q->fetchColumn()) {
                 cerrarAccesoSync($pdo);
-                responder(401, ['error' => 'La sincronizaci?n termin?. Ingresa nuevamente.', 'codigo' => 'ACCESO_REQUERIDO']);
+                responder(401, ['error' => 'La sincronización terminó. Ingresa nuevamente.', 'codigo' => 'ACCESO_REQUERIDO']);
             }
         }
     } catch (Throwable $e) {
