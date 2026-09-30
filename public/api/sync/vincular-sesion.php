@@ -2,6 +2,9 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 3) . '/app/sync/funciones.php';
+require_once dirname(__DIR__, 3) . '/app/sync/acceso.php';
+
+exigirAccesoSync();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Allow: POST');
@@ -31,7 +34,8 @@ if (!preg_match('/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/', $codigo)) {
 }
 
 try {
-    $conexion = require dirname(__DIR__, 3) . '/app/sync/conexion.php';
+    $conexion = conexionAccesoSync();
+    $conexion->beginTransaction();
 
     $tokenReceptor = bin2hex(random_bytes(32));
     $tokenHash = hash('sha256', $tokenReceptor);
@@ -59,12 +63,17 @@ try {
         ]);
     }
 
+    $buscar = $conexion->prepare('SELECT id FROM sesiones WHERE codigo = ?');
+    $buscar->execute([$codigo]);
+    asociarAccesoSync($conexion, (int) $buscar->fetchColumn(), 'receptor');
+    $conexion->commit();
     responder(200, [
         'codigo' => $codigo,
         'token_receptor' => $tokenReceptor,
         'estado' => 'vinculada',
     ]);
 } catch (Throwable $error) {
+    if (isset($conexion) && $conexion->inTransaction()) $conexion->rollBack();
     error_log((string) $error);
 
     responder(500, [

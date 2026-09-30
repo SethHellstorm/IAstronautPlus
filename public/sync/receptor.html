@@ -49,6 +49,8 @@
 
 <body>
     <h1>Vincular computadora</h1>
+    <button id="cerrarAcceso" type="button">Cerrar sesi?n</button>
+    <p id="estadoCierre" role="status" aria-live="polite"></p>
 
     <p>Introduce el código que aparece en la página emisora.</p>
 
@@ -83,6 +85,7 @@
     <ul id="listaEventos"></ul>
 </section>
 
+    <script src="./control-acceso.js"></script>
     <script>
         const formulario = document.getElementById('formulario');
         const entradaCodigo = document.getElementById('codigo');
@@ -98,8 +101,41 @@
         const eventosMostrados = new Set();
         const confirmacionesPendientes = new Set();
 
+        function claveConfirmaciones() {
+            return 'iastronaut_sync_confirmaciones_' + sesionReceptora.codigo;
+        }
+
+        function guardarConfirmaciones() {
+            sessionStorage.setItem(
+                claveConfirmaciones(),
+                JSON.stringify([...confirmacionesPendientes])
+            );
+        }
+
+        function recuperarConfirmaciones() {
+            const texto = sessionStorage.getItem(claveConfirmaciones());
+
+            if (!texto) return;
+
+            const ids = JSON.parse(texto);
+
+            if (
+                !Array.isArray(ids) ||
+                !ids.every(id => Number.isSafeInteger(id) && id > 0)
+            ) {
+                throw new Error('Las confirmaciones guardadas no son válidas.');
+            }
+
+        for (const id of ids) {
+            confirmacionesPendientes.add(id);
+
+            // Ya se mostraron antes de la recarga.
+            eventosMostrados.add(id);
+        }
+    }
+
         async function confirmarEvento(eventoId) {
-            const respuesta = await fetch('../api/sync/confirmar-evento.php', {
+            const respuesta = await ControlAcceso.solicitar('../api/sync/confirmar-evento.php', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -127,12 +163,12 @@
     }
 
         async function consultarEventos() {
-            if (!sesionReceptora) return;
+            if (!sesionReceptora || ControlAcceso.terminado) return;
 
             let continuar = true;
 
             try {
-                const respuesta = await fetch('../api/sync/recibir-eventos.php', {
+                const respuesta = await ControlAcceso.solicitar('../api/sync/recibir-eventos.php', {
                     method: 'GET',
                     headers: {
                         Authorization: 'Bearer ' + sesionReceptora.token_receptor
@@ -174,24 +210,45 @@
                 listaEventos.appendChild(elemento);
                 eventosMostrados.add(evento.id);
                 confirmacionesPendientes.add(evento.id);
+                guardarConfirmaciones();
             }
-            for (const eventoId of confirmacionesPendientes) {
+            // Aseguramos que los pendientes estén guardados antes de confirmarlos.
+            guardarConfirmaciones();
+
+            for (const eventoId of [...confirmacionesPendientes]) {
                 await confirmarEvento(eventoId);
+
                 confirmacionesPendientes.delete(eventoId);
+
+            try {
+                guardarConfirmaciones();
+            } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
+                // Conservamos el pendiente para volver a intentar.
+                confirmacionesPendientes.add(eventoId);
+                throw error;
+            }
         }
 
             estadoRecepcion.textContent =
                 'Escuchando. Mostrados: ' + eventosMostrados.size +
                 '. Confirmaciones pendientes: ' + confirmacionesPendientes.size + '.';
         } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
             if ([401, 403, 410].includes(error.status)) {
                 continuar = false;
             }
 
             if (!continuar) {
-                try { sessionStorage.removeItem(CLAVE_SESION_RECEPTORA); } catch (_) {}
+                try {
+                    sessionStorage.removeItem(CLAVE_SESION_RECEPTORA);
+                } catch (_) {
+
+                }
                 sesionReceptora = null;
-                mensaje.textContent = 'La sesión ya no está disponible. Recarga para vincular una nueva.';
+
+                mensaje.textContent =
+                    'La sesión ya no está disponible. Recarga para vincular una nueva.';
             }
 
             estadoRecepcion.textContent = continuar
@@ -219,7 +276,7 @@
             mensaje.textContent = 'Vinculando…';
 
             try {
-                const respuesta = await fetch('../api/sync/vincular-sesion.php', {
+                const respuesta = await ControlAcceso.solicitar('../api/sync/vincular-sesion.php', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -248,6 +305,7 @@
                         JSON.stringify(sesionReceptora)
                     );
                 } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
                     console.warn('No se pudo guardar la sesión receptora.');
                 }
 
@@ -259,12 +317,13 @@
                 botonVincular.textContent = 'Sesión vinculada';
                 consultarEventos();
             } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
                 mensaje.textContent = 'Error: ' + error.message;
                 botonVincular.disabled = false;
                 entradaCodigo.disabled = false;
             }
         });
-        
+
         function recuperarSesionReceptora() {
             let guardada;
 
@@ -285,6 +344,7 @@
                 throw new Error('La sesión guardada no tiene un formato válido.');
             }
         } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
             try {
                 sessionStorage.removeItem(CLAVE_SESION_RECEPTORA);
             } catch (_) {
@@ -306,9 +366,20 @@
 
         mensaje.textContent = 'Sesión recuperada. Verificando con el servidor…';
 
+        try {
+            recuperarConfirmaciones();
+        } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
+            estadoRecepcion.textContent =
+                'No se pudieron recuperar las confirmaciones: ' + error.message;
+            return;
+        }
+
         consultarEventos();
     }
-        recuperarSesionReceptora();
+
+    document.getElementById('cerrarAcceso').addEventListener('click', ControlAcceso.cerrar);
+    ControlAcceso.iniciar(recuperarSesionReceptora);
     </script>
 </body>
 </html>

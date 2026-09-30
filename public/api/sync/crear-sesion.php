@@ -2,6 +2,9 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 3) . '/app/sync/funciones.php';
+require_once dirname(__DIR__, 3) . '/app/sync/acceso.php';
+
+exigirAccesoSync();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Allow: POST');
@@ -9,7 +12,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 try {
-    $conexion = require dirname(__DIR__, 3) . '/app/sync/conexion.php';
+    $conexion = conexionAccesoSync();
+    $conexion->beginTransaction();
 
     $tokenEmisor = bin2hex(random_bytes(32));
     $tokenHash = hash('sha256', $tokenEmisor);
@@ -49,8 +53,11 @@ try {
             throw $error;
         }
 
+        $sesionId = (int) $conexion->lastInsertId();
+        asociarAccesoSync($conexion, $sesionId, 'emisor');
+        $conexion->commit();
         responder(201, [
-            'sesion_id' => (int) $conexion->lastInsertId(),
+            'sesion_id' => $sesionId,
             'codigo' => $codigo,
             'token_emisor' => $tokenEmisor,
             'estado' => 'esperando',
@@ -61,6 +68,7 @@ try {
         'error' => 'No se pudo generar un código. Intenta nuevamente.',
     ]);
 } catch (Throwable $error) {
+    if (isset($conexion) && $conexion->inTransaction()) $conexion->rollBack();
     error_log((string) $error);
 
     responder(500, [

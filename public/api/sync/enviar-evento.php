@@ -2,6 +2,9 @@
 declare(strict_types=1);
 
 require_once dirname(__DIR__, 3) . '/app/sync/funciones.php';
+require_once dirname(__DIR__, 3) . '/app/sync/acceso.php';
+
+exigirAccesoSync();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Allow: POST');
