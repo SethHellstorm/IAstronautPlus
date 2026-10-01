@@ -235,10 +235,11 @@ function createDesktopHelp(renderer) {
     const voiceGuide = createVoiceGuide({ ttsPlayer: tts, localAudioBasePath: MISSION_AUDIO_DIR });
     const WELCOME_SESSION_KEY = "iastronaut.missionWelcomePlayed";
     let welcomeSpoken = false;
+    let welcomeDismissed = false;
     let welcomePromise = null;
     const welcomeVoice = "Bienvenido a la Operación Helios. Soy IAstronaut y te acompañaré durante la misión. Antes de empezar, puedes revisar el objetivo, la información científica y la bitácora en los paneles. Cuando estés listo, selecciona Iniciar operación. A partir de ahí, te guiaré paso a paso.";
     function hasPlayedWelcome() {
-        if (welcomeSpoken || window.__iastronautWelcomePlayed)
+        if (welcomeSpoken || welcomeDismissed || window.__iastronautWelcomePlayed)
             return true;
         try {
             return sessionStorage.getItem(WELCOME_SESSION_KEY) === "1";
@@ -255,6 +256,16 @@ function createDesktopHelp(renderer) {
         }
         catch (_) { }
     }
+    function dismissPendingWelcome() {
+        if (hasPlayedWelcome())
+            return;
+        welcomeDismissed = true;
+        window.__iastronautWelcomePlayed = true;
+        try {
+            sessionStorage.setItem(WELCOME_SESSION_KEY, "1");
+        }
+        catch (_) { }
+    }
     function startWelcomeVoice() {
         if (hasPlayedWelcome()) {
             welcomeSpoken = true;
@@ -265,7 +276,7 @@ function createDesktopHelp(renderer) {
         welcomePromise = Promise.resolve(
             voiceGuide.playLocal("mission_welcome", { interrupt: false, remember: false })
         ).then((played) => {
-            if (played)
+            if (played && !welcomeDismissed)
                 markWelcomePlayed();
             return !!played;
         }).finally(() => {
@@ -378,6 +389,7 @@ function createDesktopHelp(renderer) {
             const canonicalText = String(meta.voiceText || message || "").trim();
             if (!canonicalText)
                 return;
+            dismissPendingWelcome();
             if (meta.kind === "arrival")
                 clearBubblesBySource(uiState, drawPanel, "mission");
             addBubble(uiState, drawPanel, canonicalText, "bot", { source: "mission" });
