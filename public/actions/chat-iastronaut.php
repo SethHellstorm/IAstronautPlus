@@ -68,7 +68,9 @@ $system =
   "Eres IAstronaut, la oficial científica y sistema de misión de la nave Operación Helios. Acompañas al tripulante durante una expedición interactiva por el Sistema Solar para restaurar una red de balizas científicas. " .
   "Explica astronomía, exploración espacial, tecnología, misiones y fenómenos del universo con datos rigurosos y un tono claro, motivador y profesional. " .
   "Habla desde el contexto ficticio de la nave y no afirmes tener experiencias humanas reales. Usa el estado actual de la operación para dar pistas útiles sin resolver automáticamente todas las actividades. " .
-  "Puedes recordar brevemente los mensajes recientes incluidos en la conversación. Responde únicamente con texto plano, sin enlaces, archivos, imágenes, markdown ni emojis. Prioriza respuestas aptas para ser escuchadas y limita la respuesta a un máximo de 45 palabras. " .
+  "El contexto operativo actual es la única fuente de verdad sobre el progreso de la misión. Los mensajes anteriores pueden contener instrucciones que ya quedaron obsoletas. Nunca indiques que debe repetirse una acción que el estado actual marque como completada. " .
+  "Si la operación actual está completada, no asignes módulos, escudos, objetivos ni pasos adicionales de esa operación. Si el usuario pregunta un dato científico sobre el cuerpo celeste actual, responde directamente a la pregunta y no lo redirijas a una tarea ya completada. " .
+  "Puedes recordar brevemente los mensajes recientes incluidos en la conversación siempre que no contradigan el contexto operativo actual. Responde únicamente con texto plano, sin enlaces, archivos, imágenes, markdown ni emojis. Prioriza respuestas aptas para ser escuchadas y limita la respuesta a un máximo de 45 palabras. " .
   "Si el usuario pide una orden de misión, confirma la acción de forma breve. Si pregunta algo ajeno al espacio o a la misión, aclara tu función y redirige la conversación.";
 
 function enforceAiRateLimit(string $scope, int $sessionLimit, int $ipLimit, int $windowSeconds): void {
@@ -297,25 +299,44 @@ if (isset($missionContext['completed_destinations']) && is_array($missionContext
     if ($cleaned !== '') $completedNames[] = $cleaned;
   }
 }
+$completedTargets = [];
+if (isset($missionContext['completed_targets']) && is_array($missionContext['completed_targets'])) {
+  foreach (array_slice($missionContext['completed_targets'], 0, 12) as $name) {
+    $cleaned = cleanValue($name, 70);
+    if ($cleaned !== '') $completedTargets[] = $cleaned;
+  }
+}
+$pendingTarget = cleanValue($missionContext['pending_target'] ?? '', 90);
+$missionState = '';
 
 if ($sceneName !== '') {
   $details = "El tripulante está en {$sceneName}";
   if ($sceneType !== '') $details .= " ({$sceneType})";
-  if ($objective !== '') $details .= ". Objetivo general: {$objective}";
-  if ($operationTitle !== '') $details .= ". Operación actual: {$operationTitle}";
-  if ($operationBriefing !== '') $details .= ". Instrucciones: {$operationBriefing}";
-  $details .= $operationComplete ? ". Operación completada" : ($operationStarted ? ". Operación activa al {$progress}%" : ". Operación aún no iniciada");
-  if ($eventLabel !== '') $details .= ". Evento activo: {$eventLabel}, quedan {$eventSeconds} segundos";
+  if ($operationTitle !== '') $details .= ". Operación: {$operationTitle}";
+
+  if ($operationComplete) {
+    $details .= ". ESTADO ACTUAL: operación completada al 100%. No hay acciones pendientes en esta escena";
+    if ($completedTargets) $details .= ". Objetivos completados: " . implode(', ', $completedTargets);
+    if ($nextDestination !== '') $details .= ". Siguiente destino disponible: {$nextDestination}";
+  } else {
+    if ($objective !== '') $details .= ". Objetivo actual: {$objective}";
+    if ($operationBriefing !== '') $details .= ". Instrucciones actuales: {$operationBriefing}";
+    $details .= $operationStarted ? ". Operación activa al {$progress}%" : ". Operación aún no iniciada";
+    if ($completedTargets) $details .= ". Objetivos ya completados: " . implode(', ', $completedTargets);
+    if ($pendingTarget !== '') $details .= ". Siguiente objetivo pendiente: {$pendingTarget}";
+    if ($eventLabel !== '') $details .= ". Evento activo: {$eventLabel}, quedan {$eventSeconds} segundos";
+    if ($hint !== '') $details .= ". Pista disponible: {$hint}";
+  }
+
   if ($selectedTopic !== '') $details .= ". Tema científico visible: {$selectedTopic}";
-  if ($hint !== '') $details .= ". Pista disponible: {$hint}";
   if ($lastResult !== '') $details .= ". Último resultado: {$lastResult}";
-  if ($nextDestination !== '') $details .= ". Próximo destino: {$nextDestination}";
   if ($completedNames) $details .= ". Destinos completados: " . implode(', ', $completedNames);
-  $system .= " Contexto operativo actual: {$details}.";
+  $missionState = "Contexto operativo actual y autoritativo: {$details}. Si el historial contradice este estado, ignora la instrucción antigua y usa este contexto.";
 }
 
 $messages = [['role' => 'system', 'content' => $system]];
 foreach ($history as $message) $messages[] = $message;
+if ($missionState !== '') $messages[] = ['role' => 'system', 'content' => $missionState];
 $messages[] = ['role' => 'user', 'content' => $userText];
 
 $chat = openaiJson($apiKey, 'https://api.openai.com/v1/chat/completions', [

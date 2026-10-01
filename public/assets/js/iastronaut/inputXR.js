@@ -10,7 +10,7 @@ function inRect(p, r) {
 export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelCanvas, uiGroup, state, drawPanel, handleActionFromHit, getInteractiveMeshes, handleInteractiveClick, handleInteractivePressStart, handleInteractivePressEnd, handleInteractiveHover, handleMainPanelHover, }) {
     const raycaster = new THREE.Raycaster();
     const tempMatrix = new THREE.Matrix4();
-    const dragVR = { active: false, controller: null, downTime: 0, plane: new THREE.Plane(), intersection: new THREE.Vector3(), offset: new THREE.Vector3() };
+    const dragVR = { active: false, controller: null, downTime: 0, plane: new THREE.Plane(), intersection: new THREE.Vector3(), offset: new THREE.Vector3(), target: new THREE.Vector3(), headPosition: new THREE.Vector3(), radius: 0 };
     const scrollVR = { active: false, controller: null, lastCanvasY: 0, moved: false };
     const pressByController = new Map();
     const vA = new THREE.Vector3();
@@ -57,6 +57,20 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(uiGroup.quaternion).normalize();
         dragVR.plane.setFromNormalAndCoplanarPoint(normal, uiGroup.position);
     }
+    function getHeadPosition(target) {
+        renderer.xr.getCamera(camera).getWorldPosition(target);
+        return target;
+    }
+    function applyDraggedPanelPositionVR() {
+        const headPos = getHeadPosition(dragVR.headPosition);
+        dragVR.target.copy(dragVR.intersection).add(dragVR.offset).sub(headPos);
+        if (dragVR.target.lengthSq() < 1e-8)
+            return;
+        // Mover cambia la dirección del panel, no su distancia respecto a la cabeza.
+        dragVR.target.normalize().multiplyScalar(dragVR.radius);
+        uiGroup.position.copy(headPos).add(dragVR.target);
+        uiGroup.lookAt(headPos);
+    }
     function startDragVR(controller, preferredHit = null) {
         const hit = preferredHit || castToPanelFromController(controller);
         if (!hit)
@@ -72,6 +86,7 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
             dragVR.offset.copy(uiGroup.position).sub(dragVR.intersection);
         else
             dragVR.offset.set(0, 0, 0);
+        dragVR.radius = Math.max(0.001, uiGroup.position.distanceTo(getHeadPosition(dragVR.headPosition)));
         return true;
     }
     function updateDragVR() {
@@ -79,13 +94,8 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
             return;
         setControllerRay(dragVR.controller);
         updateDragPlaneVR();
-        if (raycaster.ray.intersectPlane(dragVR.plane, dragVR.intersection)) {
-            uiGroup.position.copy(dragVR.intersection).add(dragVR.offset);
-            const xrCam = renderer.xr.getCamera(camera);
-            const headPos = new THREE.Vector3();
-            xrCam.getWorldPosition(headPos);
-            uiGroup.lookAt(headPos);
-        }
+        if (raycaster.ray.intersectPlane(dragVR.plane, dragVR.intersection))
+            applyDraggedPanelPositionVR();
     }
     function updateScrollVR() {
         if (!scrollVR.active || !scrollVR.controller)

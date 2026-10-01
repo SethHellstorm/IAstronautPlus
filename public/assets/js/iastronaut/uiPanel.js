@@ -1,5 +1,5 @@
 import { roundRect } from "./canvasUtils.js";
-import { HIT_ZONES, MAX_BUBBLES, PANEL_CANVAS_W, PANEL_CANVAS_H, } from "./config.js";
+import { HIT_ZONES, MAX_BUBBLES, PANEL_CANVAS_W, PANEL_CANVAS_H, MAIN_PANEL_WIDTH, MAIN_PANEL_HEIGHT, } from "./config.js";
 const STAR_FIELD = Array.from({ length: 54 }, (_, i) => ({
     x: 64 + ((i * 197) % 1268),
     y: 166 + ((i * 131) % 770),
@@ -66,7 +66,7 @@ export function createPanel({ THREE, scene }) {
         depthTest: true,
         depthWrite: false,
     });
-    const panelMesh = new THREE.Mesh(new THREE.PlaneGeometry(2.30, 1.88), panelMat);
+    const panelMesh = new THREE.Mesh(new THREE.PlaneGeometry(MAIN_PANEL_WIDTH, MAIN_PANEL_HEIGHT), panelMat);
     panelMesh.renderOrder = 2;
     const uiGroup = new THREE.Group();
     uiGroup.add(panelMesh);

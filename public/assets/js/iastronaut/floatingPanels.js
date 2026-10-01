@@ -1,11 +1,18 @@
 import { SOLAR_MISSION, MISSION_TOPIC_ORDER } from "./missionData.js";
+import { MAIN_PANEL_WIDTH, MAIN_PANEL_HEIGHT, MAIN_PANEL_Y, PANEL_LAYOUT_GAP } from "./config.js";
 import { roundRect } from "./canvasUtils.js";
 import { drawShell, drawDot, drawWrapped, drawBar, drawButton, drawPrimaryButton, makePanel, pointInRect, circleContains } from "./panelCanvas.js";
 export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director, getWorldStatus, mainPanelMesh }) {
-    const status = makePanel({ THREE, uiGroup, id: "status", canvasW: 1180, canvasH: 230, width: 2.12, height: 0.42, x: 0, y: -1.35, z: 0.02 });
-    const controls = makePanel({ THREE, uiGroup, id: "controls", canvasW: 760, canvasH: 900, width: 1.28, height: 1.52, x: 2.02, y: -0.08, z: 0.015, rotationY: -0.08 });
-    const dossier = makePanel({ THREE, uiGroup, id: "dossier", canvasW: 760, canvasH: 760, width: 1.28, height: 1.28, x: -2.02, y: -0.08, z: 0.018, rotationY: 0.08 });
-    const solarMap = makePanel({ THREE, uiGroup, id: "solarMap", canvasW: 1400, canvasH: 320, width: 2.58, height: 0.59, x: 0, y: 1.36, z: 0.012 });
+    const sidePanelWidth = 1.28;
+    const statusHeight = 0.42;
+    const solarMapHeight = 0.59;
+    const sideX = MAIN_PANEL_WIDTH / 2 + PANEL_LAYOUT_GAP + sidePanelWidth / 2;
+    const statusY = MAIN_PANEL_Y - MAIN_PANEL_HEIGHT / 2 - PANEL_LAYOUT_GAP - statusHeight / 2;
+    const solarMapY = MAIN_PANEL_Y + MAIN_PANEL_HEIGHT / 2 + PANEL_LAYOUT_GAP + solarMapHeight / 2;
+    const status = makePanel({ THREE, uiGroup, id: "status", canvasW: 1180, canvasH: 230, width: 2.12, height: statusHeight, x: 0, y: statusY, z: 0.02 });
+    const controls = makePanel({ THREE, uiGroup, id: "controls", canvasW: 760, canvasH: 900, width: sidePanelWidth, height: 1.52, x: sideX, y: MAIN_PANEL_Y, z: 0.015, rotationY: -0.08 });
+    const dossier = makePanel({ THREE, uiGroup, id: "dossier", canvasW: 760, canvasH: 760, width: sidePanelWidth, height: 1.28, x: -sideX, y: MAIN_PANEL_Y, z: 0.018, rotationY: 0.08 });
+    const solarMap = makePanel({ THREE, uiGroup, id: "solarMap", canvasW: 1400, canvasH: 320, width: 2.58, height: solarMapHeight, x: 0, y: solarMapY, z: 0.012 });
     const focusReturn = makePanel({ THREE, uiGroup, id: "focusReturn", canvasW: 680, canvasH: 180, width: 1.06, height: 0.28, x: -2.22, y: -1.42, z: 0.072, rotationY: 0.07 });
     focusReturn.mesh.material.depthTest = false;
     focusReturn.mesh.material.depthWrite = false;
@@ -13,8 +20,8 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
     const panels = [status, controls, dossier, solarMap, focusReturn];
     const mainPanelHome = mainPanelMesh ? { position: mainPanelMesh.position.clone(), rotationY: mainPanelMesh.rotation.y } : null;
     if (mainPanelMesh && mainPanelHome) {
-        mainPanelHome.position.y = -0.08;
-        mainPanelMesh.position.y = -0.08;
+        mainPanelHome.position.y = MAIN_PANEL_Y;
+        mainPanelMesh.position.y = MAIN_PANEL_Y;
     }
     let state = director.getState();
     let hoverKey = "";
@@ -58,7 +65,7 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
             mainPanelMesh.userData.missionTargetRotationY = mainPanelHome.rotationY;
         }
         const base = controls.mesh.userData.basePosition;
-        base.set(1.94, 0, 0.015);
+        base.set(sideX, MAIN_PANEL_Y, 0.015);
         if (focus && hoverKey && !hoverKey.startsWith("focusReturn:"))
             hoverKey = "";
     }

@@ -22,6 +22,8 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         plane: new THREE.Plane(),
         intersection: new THREE.Vector3(),
         offset: new THREE.Vector3(),
+        target: new THREE.Vector3(),
+        radius: 0,
     };
     const scrollDrag = { active: false, moved: false, lastCanvasY: 0 };
     const interactivePress = { active: false, moved: false, hit: null, handled: false, startX: 0, startY: 0 };
@@ -71,6 +73,15 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
     function updatePanelPlane() {
         const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(uiGroup.quaternion).normalize();
         dragPanel.plane.setFromNormalAndCoplanarPoint(normal, uiGroup.position);
+    }
+    function applyDraggedPanelPosition() {
+        dragPanel.target.copy(dragPanel.intersection).add(dragPanel.offset).sub(camera.position);
+        if (dragPanel.target.lengthSq() < 1e-8)
+            return;
+        // Mover cambia la dirección del panel, no su distancia respecto al usuario.
+        dragPanel.target.normalize().multiplyScalar(dragPanel.radius);
+        uiGroup.position.copy(camera.position).add(dragPanel.target);
+        uiGroup.lookAt(camera.position);
     }
     function onPointerDown(ev) {
         downHit = null;
@@ -131,6 +142,7 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
             dragPanel.offset.copy(uiGroup.position).sub(dragPanel.intersection);
         else
             dragPanel.offset.set(0, 0, 0);
+        dragPanel.radius = Math.max(0.001, uiGroup.position.distanceTo(camera.position));
     }
     function onPointerMove(ev) {
         if (interactivePress.active) {
@@ -166,10 +178,8 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
             setMouse(ev.clientX, ev.clientY);
             raycaster.setFromCamera(mouseNDC, camera);
             updatePanelPlane();
-            if (raycaster.ray.intersectPlane(dragPanel.plane, dragPanel.intersection)) {
-                uiGroup.position.copy(dragPanel.intersection).add(dragPanel.offset);
-                uiGroup.lookAt(camera.position);
-            }
+            if (raycaster.ray.intersectPlane(dragPanel.plane, dragPanel.intersection))
+                applyDraggedPanelPosition();
             return;
         }
         updateHover(ev);

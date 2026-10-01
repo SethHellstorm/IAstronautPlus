@@ -36,7 +36,12 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
     if (completed.size && !completed.has("earth"))
         completed.add("earth");
     const taskStates = !savedRecord.legacy && saved.taskStates && typeof saved.taskStates === "object" ? saved.taskStates : {};
-    let currentIndex = homeIndex >= 0 ? homeIndex : 0;
+    const savedSceneIndex = typeof saved.currentSceneId === "string"
+        ? SOLAR_MISSION.findIndex((item) => item.id === saved.currentSceneId)
+        : -1;
+    let currentIndex = savedSceneIndex >= 0 && (savedSceneIndex === homeIndex || visited.has(SOLAR_MISSION[savedSceneIndex].id))
+        ? savedSceneIndex
+        : (homeIndex >= 0 ? homeIndex : 0);
     let selectedTopic = MISSION_TOPIC_ORDER.includes(saved.topic) ? saved.topic : MISSION_TOPIC_ORDER[0];
     let objectivesMode = saved.mode === "log" ? "log" : "mission";
     let focusMode = false;
@@ -113,6 +118,7 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
             localStorage.setItem("iastronaut_operation_helios_v2", JSON.stringify({
                 completed: Array.from(completed),
                 visited: Array.from(visited),
+                currentSceneId: current().id,
                 topic: selectedTopic,
                 mode: objectivesMode,
                 taskStates,
@@ -816,10 +822,48 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
             emit();
         }
     }
+    function completedTargetLabels(op, task) {
+        if (!op)
+            return [];
+        if (op.type === "descent") {
+            return (op.levels || [])
+                .filter((level, index) => level.sample && (task.custom.samples || []).includes(index))
+                .map((level) => level.sample || level.name)
+                .filter(Boolean);
+        }
+        if (op.type === "resonance")
+            return (op.bands || []).slice(0, task.custom.bandIndex || 0);
+        if (op.type === "routePlan") {
+            return (op.routes || [])
+                .slice(0, task.custom.routeStep || 0)
+                .map((route) => route.label)
+                .filter(Boolean);
+        }
+        if (op.type === "align" && task.completed)
+            return [op.targets?.[0]?.label || "ALINEACIÓN COMPLETA"];
+        return (op.targets || [])
+            .filter((target) => task.targets?.[target.id]?.complete || task.targets?.[target.id]?.scanned)
+            .map((target) => target.label)
+            .filter(Boolean);
+    }
+    function pendingTargetLabel(op, task) {
+        if (!op || task.completed)
+            return "";
+        if (op.type === "routePlan")
+            return op.routes?.[task.custom.routeStep || 0]?.label || "";
+        if (op.type === "resonance")
+            return op.bands?.[task.custom.bandIndex || 0] || "";
+        if (op.type === "align")
+            return `${Math.round(task.angle || 0)}° de ${op.targetAngle}°`;
+        const pending = firstPendingTarget();
+        return pending?.label || "";
+    }
     function getContext() {
         const stage = current();
         const op = operation();
         const task = taskState();
+        const completedTargets = completedTargetLabels(op, task);
+        const pendingTarget = pendingTargetLabel(op, task);
         return {
             scene_id: stage.id,
             scene_name: stage.name,
@@ -833,6 +877,8 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
             operation_started: !!task.started,
             operation_complete: !!task.completed,
             operation_progress: Math.round(snapshot().progress * 100),
+            completed_targets: completedTargets,
+            pending_target: pendingTarget,
             event_label: task.eventActive ? op?.event?.label || "" : "",
             event_seconds: task.eventActive ? Math.ceil(task.eventRemaining) : 0,
             selected_topic: stage.topics[selectedTopic]?.label || "",
