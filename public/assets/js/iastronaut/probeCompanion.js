@@ -30,11 +30,7 @@ export function createProbeCompanion({ THREE, scene }) {
     group.add(ring);
     const lens = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), accentMaterial);
     lens.position.set(0, 0, 0.24);
-    lens.userData.probeControl = true;
     group.add(lens);
-    const hitShell = new THREE.Mesh(new THREE.SphereGeometry(0.52, 18, 14), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.001, depthWrite: false, colorWrite: false }));
-    hitShell.userData.probeControl = true;
-    group.add(hitShell);
     const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.018, 0.28, 10), darkMaterial);
     antenna.position.set(0, 0.28, 0);
     group.add(antenna);
@@ -145,7 +141,6 @@ export function createProbeCompanion({ THREE, scene }) {
     drawLabel();
     return {
         group,
-        interactiveMesh: hitShell,
         setHome,
         setTarget,
         setState,

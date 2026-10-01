@@ -70,10 +70,8 @@ export const MISSION_OPERATIONS = Object.freeze({
         },
         targets: [
             { id: "mercury-rim-a", label: "BORDE A", detail: "+312 °C", voiceName: "el borde iluminado", voiceResult: "Borde iluminado: trescientos doce grados.", hiddenDetail: true, kind: "scan", world: [-2.55, 0.34, -2.5] },
-            { id: "mercury-rim-b", label: "BORDE B", detail: "+96 °C", voiceName: "la ladera interior", voiceResult: "Ladera interior: noventa y seis grados.", hiddenDetail: true, kind: "scan", world: [-1.35, 0.08, -3.18] },
             { id: "mercury-floor", label: "FONDO", detail: "−48 °C", voiceName: "el fondo del cráter", voiceResult: "Fondo: menos cuarenta y ocho grados.", hiddenDetail: true, kind: "scan", world: [0.0, -0.08, -3.52] },
             { id: "mercury-shadow", label: "SOMBRA", detail: "−173 °C · HIELO", voiceName: "la depresión en sombra", voiceResult: "Sombra: menos ciento setenta y tres grados. Hay hielo.", hiddenDetail: true, kind: "scan", world: [1.35, 0.08, -3.18] },
-            { id: "mercury-rim-c", label: "BORDE C", detail: "+41 °C", voiceName: "el borde norte", voiceResult: "Borde norte: cuarenta y un grados.", hiddenDetail: true, kind: "scan", world: [2.55, 0.34, -2.5] },
         ],
     },
     venus: {

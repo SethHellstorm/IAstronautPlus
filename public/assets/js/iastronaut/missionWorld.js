@@ -52,7 +52,7 @@ export function createMissionWorld({ THREE, scene, camera, renderer, director })
     const particles = new THREE.Points(particlesGeometry, new THREE.PointsMaterial({ color: 0x59e8ff, size: 0.014, transparent: true, opacity: 0.28, depthWrite: false }));
     world.add(particles);
     const targets = new Map();
-    let interactiveMeshes = [probe.interactiveMesh];
+    let interactiveMeshes = [];
     let hoveredTargetId = "";
     let currentStageId = "";
     let latestState = director.getState();
@@ -227,7 +227,7 @@ export function createMissionWorld({ THREE, scene, camera, renderer, director })
             targetGroup.remove(root);
         }
         targets.clear();
-        interactiveMeshes = [probe.interactiveMesh];
+        interactiveMeshes = [];
         hoverHoldUntil = 0;
         hoveredTargetId = "";
     }
@@ -723,8 +723,6 @@ export function createMissionWorld({ THREE, scene, camera, renderer, director })
         while (object) {
             if (object.userData?.targetId)
                 return object.userData.targetId;
-            if (object.userData?.probeControl)
-                return "__probe__";
             object = object.parent;
         }
         return "";
@@ -760,7 +758,6 @@ export function createMissionWorld({ THREE, scene, camera, renderer, director })
         else {
             probe.setTarget(null, "SONDA HELIOS", latestState.task.started ? latestState.operation.tool.toUpperCase() : "ESPERANDO ORDEN");
         }
-        probe.setHovered(id === "__probe__");
         statusDirty = true;
         return id;
     }
@@ -803,11 +800,6 @@ export function createMissionWorld({ THREE, scene, camera, renderer, director })
         const id = findTarget(hit);
         if (!id)
             return false;
-        if (id === "__probe__") {
-            director.startOperation();
-            pulseGamepad(source, 0.35, 45);
-            return true;
-        }
         if (!latestState.task.started)
             director.startOperation();
         if (latestState.task.completed)
