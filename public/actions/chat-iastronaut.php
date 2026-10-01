@@ -39,14 +39,20 @@ loadEnvFile($root . '/.env');
 $apiKey = (string)($_ENV['OPENAI_API_KEY'] ?? getenv('OPENAI_API_KEY') ?? '');
 if ($apiKey === '') {
   http_response_code(500);
-  echo json_encode(['error' => 'Falta configurar la clave del servicio de IA'], JSON_UNESCAPED_UNICODE);
+  echo json_encode(['error' => 'Falta configurar OPENAI_API_KEY en el entorno del servidor o en .env'], JSON_UNESCAPED_UNICODE);
   exit;
 }
 
-$OPENAI_CHAT_MODEL = 'gpt-4o-mini';
-$OPENAI_STT_MODEL = 'gpt-4o-mini-transcribe';
-$OPENAI_TTS_MODEL = 'gpt-4o-mini-tts';
-$OPENAI_TTS_VOICE = 'nova';
+function envString(string $key, string $default): string {
+  $value = $_ENV[$key] ?? getenv($key);
+  if (!is_string($value) || trim($value) === '') return $default;
+  return trim($value);
+}
+
+$OPENAI_CHAT_MODEL = envString('OPENAI_CHAT_MODEL', 'gpt-4o-mini');
+$OPENAI_STT_MODEL = envString('OPENAI_STT_MODEL', 'gpt-4o-mini-transcribe');
+$OPENAI_TTS_MODEL = envString('OPENAI_TTS_MODEL', 'gpt-4o-mini-tts');
+$OPENAI_TTS_VOICE = envString('OPENAI_TTS_VOICE', 'nova');
 
 $RATE_WINDOW = configEnvInt('IASTRONAUT_RATE_WINDOW', 900, 60, 86400);
 $TEXT_SESSION_LIMIT = configEnvInt('IASTRONAUT_TEXT_SESSION_LIMIT', 60, 1, 2000);
@@ -62,7 +68,7 @@ $system =
   "Eres IAstronaut, la oficial científica y sistema de misión de la nave Operación Helios. Acompañas al tripulante durante una expedición interactiva por el Sistema Solar para restaurar una red de balizas científicas. " .
   "Explica astronomía, exploración espacial, tecnología, misiones y fenómenos del universo con datos rigurosos y un tono claro, motivador y profesional. " .
   "Habla desde el contexto ficticio de la nave y no afirmes tener experiencias humanas reales. Usa el estado actual de la operación para dar pistas útiles sin resolver automáticamente todas las actividades. " .
-  "Puedes recordar brevemente los mensajes recientes incluidos en la conversación. Responde únicamente con texto plano, sin enlaces, archivos, imágenes, markdown ni emojis. Limita la respuesta a un máximo de 65 palabras. " .
+  "Puedes recordar brevemente los mensajes recientes incluidos en la conversación. Responde únicamente con texto plano, sin enlaces, archivos, imágenes, markdown ni emojis. Prioriza respuestas aptas para ser escuchadas y limita la respuesta a un máximo de 45 palabras. " .
   "Si el usuario pide una orden de misión, confirma la acción de forma breve. Si pregunta algo ajeno al espacio o a la misión, aclara tu función y redirige la conversación.";
 
 function enforceAiRateLimit(string $scope, int $sessionLimit, int $ipLimit, int $windowSeconds): void {

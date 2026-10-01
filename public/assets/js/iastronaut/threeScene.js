@@ -1,6 +1,7 @@
 import { APP_BASE, BG_IMAGE, MISSION_BG_DIR, FLOATING_ASSETS, ASTRONAUT_SIDE_OFFSET, ASTRONAUT_SCALE_MULT, PANEL_DISTANCE_DEFAULT, PANEL_DISTANCE_XR_DEFAULT, HIT_ZONES, } from "./config.js";
-import { createUIState, createPanel, drawPanelFactory, addBubble } from "./uiPanel.js";
-import { createTTSPlayer, createMicChatController } from "./chat.js";
+import { createUIState, createPanel, drawPanelFactory, addBubble, clearBubblesBySource } from "./uiPanel.js";
+import { createTTSPlayer, createVoiceGuide } from "./voice.js";
+import { createMicChatController } from "./chat.js";
 import { setupDesktopMobileInput } from "./inputDesktopMobile.js";
 import { setupXRInput } from "./inputXR.js";
 import { createFloatingMissionPanels } from "./floatingPanels.js";
@@ -33,11 +34,10 @@ function createDesktopHelp(renderer) {
       <button id="vrHelpClose" style="cursor:pointer;border:0;background:rgba(255,255,255,.12);color:#fff;border-radius:10px;padding:6px 10px;font-weight:800">✕</button>
     </div>
     <div style="margin-top:8px;font-size:13px;line-height:1.45;color:rgba(255,255,255,.94)">
-      <div><b>Interactuar:</b> apunta a un objetivo y mantén presionado.</div>
-      <div><b>Mover paneles:</b> arrastra el botón MOVER del chat.</div>
-      <div><b>Scroll:</b> rueda sobre el chat. <b>Shift + rueda</b> cambia la distancia.</div>
-      <div><b>Mirar:</b> clic derecho o Shift + arrastrar.</div>
-      <div style="margin-top:6px;opacity:.85">En Quest usa el gatillo o la pinza. Los objetivos y botones se iluminan al apuntarlos.</div>
+      <div><b>Interactuar:</b> apunta y haz clic una vez.</div>
+      <div><b>Explorar:</b> gira para localizar objetivos alrededor de tu posición.</div>
+      <div><b>Guía:</b> IAstronaut dará instrucciones de voz durante cada operación.</div>
+      <div style="margin-top:6px;opacity:.85">En Quest usa el gatillo o la pinza. En escritorio, clic derecho o Shift + arrastrar permite mirar alrededor.</div>
     </div>`;
     document.body.appendChild(wrap);
     wrap.querySelector("#vrHelpClose")?.addEventListener("click", () => {
@@ -230,6 +230,25 @@ function createDesktopHelp(renderer) {
     }
     applyPanelScale();
     const drawPanel = drawPanelFactory({ THREE, panelCanvas, ctx, panelTex, state: uiState });
+    const tts = createTTSPlayer();
+    const voiceGuide = createVoiceGuide({ ttsPlayer: tts });
+    let welcomeSpoken = false;
+    const welcomeVoice = "Bienvenido a Operación Helios. Soy IAstronaut y estaré contigo durante la misión. Antes de empezar, puedes revisar el objetivo, la información científica y la bitácora en los paneles. Cuando estés listo, selecciona el botón Iniciar operación; desde ahí te iré guiando paso a paso.";
+    function startWelcomeVoice() {
+        if (welcomeSpoken)
+            return;
+        welcomeSpoken = true;
+        voiceGuide.speak(welcomeVoice, { interrupt: false, remember: true });
+    }
+    async function activateVoiceGuide() {
+        await voiceGuide.unlock?.();
+        startWelcomeVoice();
+    }
+    // La petición TTS comienza al cargar; la primera interacción solo desbloquea el audio si el navegador lo exige.
+    startWelcomeVoice();
+    voiceGuide.unlock?.();
+    window.addEventListener("pointerdown", activateVoiceGuide, { once: true, capture: true });
+    window.addEventListener("keydown", activateVoiceGuide, { once: true, capture: true });
     function createVRExitControl() {
         const controlCanvas = document.createElement("canvas");
         controlCanvas.width = 760;
@@ -277,7 +296,7 @@ function createDesktopHelp(renderer) {
             roundedRect(8, 8, 744, 214, 26);
             controlCtx.stroke();
             controlCtx.fillStyle = "#FFB7C8";
-            controlCtx.font = "900 24px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+            controlCtx.font = "900 28px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
             controlCtx.textAlign = "center";
             controlCtx.textBaseline = "middle";
             controlCtx.fillText("SISTEMA XR", 380, 62);
@@ -285,7 +304,7 @@ function createDesktopHelp(renderer) {
             controlCtx.font = "900 48px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
             controlCtx.fillText(busy ? "SALIENDO..." : "SALIR DE VR", 380, 122);
             controlCtx.fillStyle = "#C9EFFF";
-            controlCtx.font = "800 20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+            controlCtx.font = "800 24px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
             controlCtx.fillText("VOLVER AL NAVEGADOR", 380, 174);
             texture.needsUpdate = true;
         }
@@ -301,11 +320,37 @@ function createDesktopHelp(renderer) {
         };
     }
     const vrExitControl = createVRExitControl();
+    let missionWorld = null;
+    let narrationSequence = 0;
+    const blockingNarrationKinds = new Set([
+        "operation_start",
+        "target_success",
+        "target_error",
+        "scan_result",
+        "decision_ready",
+        "tune_feedback",
+        "descent_move",
+        "align_feedback"
+    ]);
     const director = createMissionDirector({
         onSceneChange: loadMissionBackground,
-        onMissionMessage: (message) => addBubble(uiState, drawPanel, message, "bot"),
+        onMissionMessage: (message, meta = {}) => {
+            const canonicalText = String(meta.voiceText || message || "").trim();
+            if (!canonicalText)
+                return;
+            if (meta.kind === "arrival")
+                clearBubblesBySource(uiState, drawPanel, "mission");
+            addBubble(uiState, drawPanel, canonicalText, "bot", { source: "mission" });
+            const sequence = ++narrationSequence;
+            const shouldBlock = blockingNarrationKinds.has(meta.kind);
+            missionWorld?.setNarrationLocked?.(shouldBlock, canonicalText);
+            const speech = voiceGuide.speak(canonicalText, { interrupt: true, remember: true });
+            Promise.resolve(speech).finally(() => {
+                if (sequence === narrationSequence)
+                    missionWorld?.setNarrationLocked?.(false);
+            });
+        },
     });
-    let missionWorld = null;
     const missionPanels = createFloatingMissionPanels({
         THREE,
         uiGroup,
@@ -315,7 +360,11 @@ function createDesktopHelp(renderer) {
         mainPanelMesh: panelMesh,
     });
     missionWorld = createMissionWorld({ THREE, scene, camera, renderer, director });
-    addBubble(uiState, drawPanel, "Bienvenido a Operación Helios. IAstronaut es tu oficial científica y puede responder preguntas o ejecutar órdenes como iniciar la operación, señalar el siguiente objetivo, repetir instrucciones, abrir la bitácora, viajar al siguiente destino o volver a casa. Usa CONTROL DE VUELO para desplegar la sonda. Durante la exploración, la terminal y los paneles auxiliares se ocultan para dejar libre el entorno. Los objetivos aparecen distribuidos alrededor de tu posición: gira para localizarlos y sigue las burbujas de instrucciones situadas junto a cada objeto. Apunta y mantén el gatillo o la pinza hasta completar la acción. Puedes restaurar la terminal desde CONTROL DE VUELO. Para mover el conjunto de paneles, selecciona MOVER en la esquina superior derecha del chat y arrástralo.", "bot");
+    function syncVRExitVisibility() {
+        vrExitControl.setVisible(renderer.xr.isPresenting && panelMesh.visible);
+    }
+    director.subscribe((nextState) => syncVRExitVisibility(nextState));
+    addBubble(uiState, drawPanel, welcomeVoice, "bot", { source: "mission" });
     function centerPanelDesktopLikeReload() {
         applyPanelScale();
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
@@ -398,11 +447,11 @@ function createDesktopHelp(renderer) {
         if (inRect(point, HIT_ZONES.talk))
             return mic.toggleMic();
     }
-    const tts = createTTSPlayer();
     const mic = createMicChatController({
         state: uiState,
         drawPanel,
         ttsPlayer: tts,
+        voiceGuide,
         getMissionContext: director.getContext,
         onAssistantAction: async (action) => {
             if (action?.type === "highlight_target")
@@ -410,6 +459,9 @@ function createDesktopHelp(renderer) {
             return director.runAction(action);
         },
     });
+    // Solicita el permiso antes de entrar en XR, sin iniciar escucha ni enviar audio.
+    mic.requestMicPermission?.();
+    window.addEventListener("pointerdown", () => mic.requestMicPermission?.(), { once: true, capture: true });
     async function exitImmersiveVR() {
         const session = renderer.xr.getSession?.();
         if (!session) {
@@ -459,7 +511,7 @@ function createDesktopHelp(renderer) {
         if (await missionPanels.handleHit(hit))
             return true;
         if (isMissionWorldHit(hit))
-            return true;
+            return missionWorld.beginPress(hit, null);
         return false;
     }
     function handleInteractiveHover(hit) {
@@ -500,11 +552,11 @@ function createDesktopHelp(renderer) {
     renderer.xr.addEventListener("sessionstart", () => {
         renderer.setPixelRatio(Math.min(1.35, window.devicePixelRatio || 1));
         panelDistance = Math.max(panelDistance, PANEL_DISTANCE_XR_DEFAULT);
-        missionPanels.setXRPresenting(true);
         vrExitControl.setBusy(false);
-        vrExitControl.setVisible(true);
+        syncVRExitVisibility();
         document.getElementById("vrDesktopHelp")?.remove();
         applyPanelScale();
+        activateVoiceGuide();
         setTimeout(recenterPanel, 160);
         try {
             mic.onXRSessionStart?.();
@@ -513,7 +565,6 @@ function createDesktopHelp(renderer) {
     });
     renderer.xr.addEventListener("sessionend", () => {
         renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-        missionPanels.setXRPresenting(false);
         vrExitControl.setVisible(false);
         vrExitControl.setBusy(false);
         applyPanelScale();
@@ -614,6 +665,7 @@ function createDesktopHelp(renderer) {
         updateFloatingObjects(t);
         missionWorld.update(t, delta);
         missionPanels.update(t);
+        syncVRExitVisibility();
         renderer.render(scene, camera);
     });
 })();

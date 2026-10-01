@@ -1,3 +1,4 @@
+import { roundRect } from "./canvasUtils.js";
 import { HIT_ZONES, MAX_BUBBLES, PANEL_CANVAS_W, PANEL_CANVAS_H, } from "./config.js";
 const STAR_FIELD = Array.from({ length: 54 }, (_, i) => ({
     x: 64 + ((i * 197) % 1268),
@@ -21,9 +22,24 @@ export function enforceMaxBubbles(state) {
     while (state.bubbles.length > MAX_BUBBLES)
         state.bubbles.shift();
 }
-export function addBubble(state, drawPanel, text, who) {
-    state.bubbles.push({ kind: "text", text: String(text || ""), who: who === "user" ? "user" : "bot" });
+export function addBubble(state, drawPanel, text, who, meta = {}) {
+    state.bubbles.push({
+        kind: "text",
+        text: String(text || ""),
+        who: who === "user" ? "user" : "bot",
+        source: String(meta.source || "chat"),
+    });
     enforceMaxBubbles(state);
+    state.autoScroll = true;
+    drawPanel();
+}
+export function clearBubblesBySource(state, drawPanel, source) {
+    const key = String(source || "");
+    if (!key)
+        return;
+    state.bubbles = state.bubbles.filter((bubble) => bubble?.source !== key);
+    state.scrollY = 0;
+    state.scrollVel = 0;
     state.autoScroll = true;
     drawPanel();
 }
@@ -56,16 +72,6 @@ export function createPanel({ THREE, scene }) {
     uiGroup.add(panelMesh);
     scene.add(uiGroup);
     return { panelCanvas, ctx, panelTex, panelMesh, uiGroup };
-}
-function roundRect(ctx, x, y, w, h, r) {
-    const rr = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + rr, y);
-    ctx.arcTo(x + w, y, x + w, y + h, rr);
-    ctx.arcTo(x + w, y + h, x, y + h, rr);
-    ctx.arcTo(x, y + h, x, y, rr);
-    ctx.arcTo(x, y, x + w, y, rr);
-    ctx.closePath();
 }
 function splitLongWord(ctx, word, maxWidth) {
     const parts = [];
@@ -218,7 +224,7 @@ export function drawPanelFactory({ THREE, panelCanvas, ctx, panelTex, state }) {
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = "#FCA5A5";
-        ctx.font = "800 23px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+        ctx.font = "800 26px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
         ctx.textBaseline = "middle";
         ctx.fillText("CERRAR ENLACE", HIT_ZONES.exit.x + 25, HIT_ZONES.exit.y + HIT_ZONES.exit.h / 2);
         ctx.restore();
@@ -228,7 +234,7 @@ export function drawPanelFactory({ THREE, panelCanvas, ctx, panelTex, state }) {
         ctx.textBaseline = "middle";
         ctx.fillText("TERMINAL DE COMUNICACIÓN", 348, 69);
         ctx.fillStyle = "rgba(97, 218, 251, 0.82)";
-        ctx.font = "700 18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+        ctx.font = "700 23px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
         ctx.fillText("IASTRONAUT · CANAL DE MISIÓN XR", 349, 106);
         ctx.save();
         const recenterHovered = state.hoverZone === "recenter";
@@ -241,7 +247,7 @@ export function drawPanelFactory({ THREE, panelCanvas, ctx, panelTex, state }) {
         ctx.fill();
         ctx.stroke();
         ctx.fillStyle = "#A7E8FF";
-        ctx.font = "800 19px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+        ctx.font = "800 22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
         ctx.textAlign = "center";
         ctx.fillText("RECALIBRAR", HIT_ZONES.recenter.x + HIT_ZONES.recenter.w / 2, HIT_ZONES.recenter.y + HIT_ZONES.recenter.h / 2);
         ctx.textAlign = "left";
@@ -287,7 +293,7 @@ export function drawPanelFactory({ THREE, panelCanvas, ctx, panelTex, state }) {
         ctx.moveTo(gx, gy + 14);
         ctx.lineTo(gx + 8, gy + 5);
         ctx.stroke();
-        ctx.font = "800 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+        ctx.font = "800 22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("MOVER", gx, gy + 29);
@@ -370,7 +376,7 @@ export function drawPanelFactory({ THREE, panelCanvas, ctx, panelTex, state }) {
             roundRect(ctx, x, y, bubbleW, bubbleH, 18);
             ctx.stroke();
             ctx.fillStyle = isUser ? "rgba(0, 35, 45, 0.72)" : "#34E8FF";
-            ctx.font = "800 18px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+            ctx.font = "800 23px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
             ctx.fillText(isUser ? "TRIPULANTE" : "IASTRONAUT", x + bubblePadX, y + bubblePadY - 1);
             ctx.fillStyle = isUser ? "#00131A" : "#DDF8FF";
             ctx.font = "33px system-ui, -apple-system, Segoe UI, Roboto, Arial";
@@ -400,10 +406,10 @@ export function drawPanelFactory({ THREE, panelCanvas, ctx, panelTex, state }) {
         const talkLabel = !micAvailable
             ? "MICRÓFONO NO DISPONIBLE"
             : state.aiSpeaking
-                ? "RECEPCIÓN DE AUDIO EN CURSO"
+                ? "IASTRONAUT HABLANDO"
                 : state.listening
-                    ? "DETENER TRANSMISIÓN"
-                    : "INICIAR TRANSMISIÓN";
+                    ? "IASTRONAUT ESCUCHANDO · PULSA PARA DETENER"
+                    : "HABLAR CON IASTRONAUT";
         const talkGradient = ctx.createLinearGradient(HIT_ZONES.talk.x, HIT_ZONES.talk.y, HIT_ZONES.talk.x + HIT_ZONES.talk.w, HIT_ZONES.talk.y + HIT_ZONES.talk.h);
         const talkHovered = state.hoverZone === "talk";
         if (!micAvailable) {

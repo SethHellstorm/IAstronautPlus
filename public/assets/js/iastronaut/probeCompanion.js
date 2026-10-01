@@ -1,3 +1,4 @@
+import { roundRect } from "./canvasUtils.js";
 function makeLabel(THREE) {
     const canvas = document.createElement("canvas");
     canvas.width = 512;
@@ -13,16 +14,6 @@ function makeLabel(THREE) {
     sprite.scale.set(0.62, 0.19, 1);
     sprite.position.set(0, 0.5, 0);
     return { canvas, ctx, texture, sprite };
-}
-function roundRect(ctx, x, y, w, h, r) {
-    const rr = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + rr, y);
-    ctx.arcTo(x + w, y, x + w, y + h, rr);
-    ctx.arcTo(x + w, y + h, x, y + h, rr);
-    ctx.arcTo(x, y + h, x, y, rr);
-    ctx.arcTo(x, y, x + rr, y, rr);
-    ctx.closePath();
 }
 export function createProbeCompanion({ THREE, scene }) {
     const group = new THREE.Group();
@@ -91,16 +82,16 @@ export function createProbeCompanion({ THREE, scene }) {
         roundRect(ctx, box.x, box.y, box.w, box.h, box.r);
         ctx.stroke();
         ctx.fillStyle = color;
-        ctx.font = hovered ? "900 31px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" : "900 27px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+        ctx.font = hovered ? "900 36px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" : "900 32px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(status, 256, hovered ? 55 : 80);
         if (hovered) {
             ctx.fillStyle = "#DDF8FF";
-            ctx.font = "800 22px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+            ctx.font = "800 26px system-ui, -apple-system, Segoe UI, Roboto, Arial";
             ctx.fillText(detail, 256, 105);
         }
-        label.sprite.scale.set(hovered ? 0.92 : 0.62, hovered ? 0.29 : 0.19, 1);
+        label.sprite.scale.set(hovered ? 1.0 : 0.72, hovered ? 0.32 : 0.22, 1);
         label.sprite.position.y = hovered ? 0.58 : 0.5;
         texture.needsUpdate = true;
     }

@@ -1,41 +1,7 @@
 import { ENDPOINT } from "./config.js";
 import { addBubble, setListening, setAISpeaking, canRecord, enforceMaxBubbles } from "./uiPanel.js";
-function base64ToBytes(value) {
-    const bin = atob(value);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++)
-        bytes[i] = bin.charCodeAt(i);
-    return bytes;
-}
-function createTimeoutSignal(timeoutMs) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    return { signal: controller.signal, clear: () => clearTimeout(timer) };
-}
-async function fetchWithTimeout(url, options, timeoutMs) {
-    const timeout = createTimeoutSignal(timeoutMs);
-    try {
-        return await fetch(url, { ...options, signal: timeout.signal });
-    }
-    finally {
-        timeout.clear();
-    }
-}
-async function readJsonResponse(response) {
-    const raw = await response.text();
-    let data = null;
-    try {
-        data = raw ? JSON.parse(raw) : {};
-    }
-    catch (_) {
-        throw new Error(`Respuesta inválida del servidor (${response.status})`);
-    }
-    if (!response.ok) {
-        const detail = data?.detail || data?.error || raw || `HTTP ${response.status}`;
-        throw new Error(String(detail));
-    }
-    return data;
-}
+import { fetchWithTimeout, readJsonResponse } from "./network.js";
+
 function fileExtensionForMime(mime) {
     const value = String(mime || "").toLowerCase();
     if (value.includes("mp4") || value.includes("m4a"))
@@ -46,131 +12,8 @@ function fileExtensionForMime(mime) {
         return "mp3";
     return "webm";
 }
-export function createTTSPlayer() {
-    let currentAudio = null;
-    let currentSource = null;
-    let audioContext = null;
-    let onSpeakingChange = null;
-    function notifySpeaking(value) {
-        try {
-            onSpeakingChange?.(!!value);
-        }
-        catch (_) { }
-    }
-    function setSpeakingChangeHandler(handler) {
-        onSpeakingChange = typeof handler === "function" ? handler : null;
-    }
-    async function ensureAudioContext() {
-        if (!audioContext || audioContext.state === "closed") {
-            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-            if (!AudioContextClass)
-                return null;
-            audioContext = new AudioContextClass();
-        }
-        if (audioContext.state === "suspended") {
-            try {
-                await audioContext.resume();
-            }
-            catch (_) { }
-        }
-        return audioContext;
-    }
-    async function unlock() {
-        const context = await ensureAudioContext();
-        if (!context)
-            return;
-        try {
-            const buffer = context.createBuffer(1, 1, context.sampleRate);
-            const source = context.createBufferSource();
-            source.buffer = buffer;
-            source.connect(context.destination);
-            source.start(0);
-        }
-        catch (_) { }
-    }
-    function stop() {
-        try {
-            currentSource?.stop?.();
-        }
-        catch (_) { }
-        try {
-            currentSource?.disconnect?.();
-        }
-        catch (_) { }
-        currentSource = null;
-        try {
-            currentAudio?.pause?.();
-        }
-        catch (_) { }
-        if (currentAudio?.src?.startsWith("blob:")) {
-            try {
-                URL.revokeObjectURL(currentAudio.src);
-            }
-            catch (_) { }
-        }
-        currentAudio = null;
-        notifySpeaking(false);
-    }
-    async function playWithAudioElement(bytes) {
-        return new Promise((resolve) => {
-            const blob = new Blob([bytes], { type: "audio/mpeg" });
-            const url = URL.createObjectURL(blob);
-            const audio = new Audio(url);
-            currentAudio = audio;
-            const finish = () => {
-                try {
-                    URL.revokeObjectURL(url);
-                }
-                catch (_) { }
-                if (currentAudio === audio)
-                    currentAudio = null;
-                notifySpeaking(false);
-                resolve();
-            };
-            audio.onended = finish;
-            audio.onerror = finish;
-            notifySpeaking(true);
-            audio.play().catch(finish);
-        });
-    }
-    async function playBase64Mp3(audioBase64) {
-        if (!audioBase64)
-            return;
-        stop();
-        const bytes = base64ToBytes(audioBase64);
-        const context = await ensureAudioContext();
-        if (!context) {
-            await playWithAudioElement(bytes);
-            return;
-        }
-        try {
-            const audioBuffer = await context.decodeAudioData(bytes.buffer.slice(0));
-            await new Promise((resolve) => {
-                const source = context.createBufferSource();
-                currentSource = source;
-                source.buffer = audioBuffer;
-                source.connect(context.destination);
-                source.onended = () => {
-                    if (currentSource === source)
-                        currentSource = null;
-                    try {
-                        source.disconnect();
-                    }
-                    catch (_) { }
-                    notifySpeaking(false);
-                    resolve();
-                };
-                notifySpeaking(true);
-                source.start(0);
-            });
-        }
-        catch (_) {
-            await playWithAudioElement(bytes);
-        }
-    }
-    return { playBase64Mp3, stop, unlock, setSpeakingChangeHandler };
-}
-export function createMicChatController({ state, drawPanel, ttsPlayer, getMissionContext, onAssistantAction }) {
+
+export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuide, getMissionContext, onAssistantAction }) {
     let micStream = null;
     let audioContext = null;
     let analyser = null;
@@ -187,6 +30,8 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
     let recordingStartedAt = 0;
     let sendOnStop = false;
     let micRearmInProgress = false;
+    let permissionPrimed = false;
+    let permissionPrimePromise = null;
     const conversationHistory = [];
     const VAD_INTERVAL_MS = 40;
     const VAD_THRESHOLD = 0.018;
@@ -288,21 +133,9 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
     }
     async function requestSpeechAudio(text) {
         const clean = String(text || "").trim();
-        if (!clean)
+        if (!clean || !voiceGuide?.speak)
             return;
-        try {
-            const response = await fetchWithTimeout(ENDPOINT, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tts_only: true, text: clean }),
-            }, 45000);
-            const data = await readJsonResponse(response);
-            if (data.audio_base64)
-                await ttsPlayer?.playBase64Mp3?.(data.audio_base64);
-        }
-        catch (error) {
-            console.warn("TTS request failed:", error);
-        }
+        await voiceGuide.speak(clean, { remember: true });
     }
     function replaceBubble(target, text, who = "bot") {
         const index = state.bubbles.indexOf(target);
@@ -317,7 +150,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
         return bubble;
     }
     async function sendAudioBlob(blob, mime) {
-        const placeholder = { kind: "text", text: "Procesando transmisión…", who: "bot" };
+        const placeholder = { kind: "text", text: "Procesando mensaje de voz…", who: "bot" };
         state.bubbles.push(placeholder);
         enforceMaxBubbles(state);
         state.autoScroll = true;
@@ -492,6 +325,30 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
             stopCapture(true);
         }
     }
+    async function requestMicPermissionOnly() {
+        if (permissionPrimed)
+            return true;
+        if (permissionPrimePromise)
+            return permissionPrimePromise;
+        if (!window.isSecureContext || !canRecord())
+            return false;
+        permissionPrimePromise = navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        }).then((stream) => {
+            permissionPrimed = true;
+            try {
+                stream.getTracks().forEach((track) => track.stop());
+            }
+            catch (_) { }
+            return true;
+        }).catch((error) => {
+            console.warn("Initial microphone permission request failed:", error);
+            return false;
+        }).finally(() => {
+            permissionPrimePromise = null;
+        });
+        return permissionPrimePromise;
+    }
     async function ensureMicArmed() {
         if (!window.isSecureContext) {
             addBubble(state, drawPanel, "El micrófono requiere una conexión HTTPS segura.", "bot");
@@ -507,6 +364,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
             });
             track = micStream.getAudioTracks?.()?.[0] || null;
+            permissionPrimed = true;
         }
         attachTrackWatchers();
         if (!audioContext || audioContext.state === "closed") {
@@ -559,7 +417,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
         catch (error) {
             console.error("Mic rearm failed:", error);
             cleanupArmedMode();
-            addBubble(state, drawPanel, "Se perdió el acceso al micrófono. Pulsa INICIAR TRANSMISIÓN para reactivarlo.", "bot");
+            addBubble(state, drawPanel, "Se perdió el acceso al micrófono. Pulsa HABLAR CON IASTRONAUT para reactivarlo.", "bot");
         }
         finally {
             micRearmInProgress = false;
@@ -568,7 +426,10 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
     async function toggleMic() {
         if (requestInFlight || state.aiSpeaking)
             return;
-        await ttsPlayer?.unlock?.();
+        if (voiceGuide?.unlock)
+            await voiceGuide.unlock();
+        else
+            await ttsPlayer?.unlock?.();
         if (armed) {
             cleanupArmedMode();
             return;
@@ -588,20 +449,12 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
             addBubble(state, drawPanel, message, "bot");
         }
     }
-    async function startRecording() {
-        await ttsPlayer?.unlock?.();
-        const ready = armed || await ensureMicArmed();
-        if (ready)
-            startCapture();
-    }
-    async function startRecordingUsingExistingStream() {
-        const ready = armed || await ensureMicArmed();
-        if (ready)
-            startCapture();
-    }
     async function onXRSessionStart() {
         try {
-            await ttsPlayer?.unlock?.();
+            if (voiceGuide?.unlock)
+                await voiceGuide.unlock();
+            else
+                await ttsPlayer?.unlock?.();
         }
         catch (_) { }
         if (audioContext?.state === "suspended") {
@@ -630,8 +483,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, getMissio
             catch (_) { }
             cleanupArmedMode();
         },
-        startRecording,
-        startRecordingUsingExistingStream,
+        requestMicPermission: requestMicPermissionOnly,
         onXRSessionStart,
     };
 }
