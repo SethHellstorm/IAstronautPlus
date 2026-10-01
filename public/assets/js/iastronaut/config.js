@@ -2,6 +2,7 @@ export const APP_BASE = String(window.APP_BASE || "").replace(/\/$/, "");
 export const ENDPOINT = `${APP_BASE}/actions/chat-iastronaut.php`;
 export const BG_IMAGE = `${APP_BASE}/assets/img/universe-vr.jpg`;
 export const MISSION_BG_DIR = `${APP_BASE}/assets/img/solar-mission`;
+export const MISSION_AUDIO_DIR = `${APP_BASE}/assets/audio/iastronaut`;
 export const MAX_BUBBLES = 20;
 export const PANEL_CANVAS_W = 1400;
 export const PANEL_CANVAS_H = 1120;

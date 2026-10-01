@@ -5,7 +5,7 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
     const status = makePanel({ THREE, uiGroup, id: "status", canvasW: 1180, canvasH: 230, width: 2.12, height: 0.42, x: 0, y: -1.35, z: 0.02 });
     const controls = makePanel({ THREE, uiGroup, id: "controls", canvasW: 760, canvasH: 900, width: 1.28, height: 1.52, x: 2.02, y: -0.08, z: 0.015, rotationY: -0.08 });
     const dossier = makePanel({ THREE, uiGroup, id: "dossier", canvasW: 760, canvasH: 760, width: 1.28, height: 1.28, x: -2.02, y: -0.08, z: 0.018, rotationY: 0.08 });
-    const solarMap = makePanel({ THREE, uiGroup, id: "solarMap", canvasW: 1400, canvasH: 430, width: 2.58, height: 0.79, x: 0, y: 1.31, z: 0.012 });
+    const solarMap = makePanel({ THREE, uiGroup, id: "solarMap", canvasW: 1400, canvasH: 320, width: 2.58, height: 0.59, x: 0, y: 1.36, z: 0.012 });
     const focusReturn = makePanel({ THREE, uiGroup, id: "focusReturn", canvasW: 680, canvasH: 180, width: 1.06, height: 0.28, x: -2.22, y: -1.42, z: 0.072, rotationY: 0.07 });
     focusReturn.mesh.material.depthTest = false;
     focusReturn.mesh.material.depthWrite = false;
@@ -338,7 +338,7 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         solarMap.hitZones = [];
         const startX = 108;
         const gap = 148;
-        const y = 236;
+        const y = 170;
         let nextIndex = -1;
         if (state.task.completed) {
             for (let i = 1; i < SOLAR_MISSION.length; i++) {
@@ -384,23 +384,23 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
                 ctx.strokeStyle = "#FFB84D";
                 ctx.lineWidth = 7;
                 ctx.beginPath();
-                ctx.arc(x, y, 45 * pulse, 0, Math.PI * 2);
+                ctx.arc(x, y, 40 * pulse, 0, Math.PI * 2);
                 ctx.stroke();
                 ctx.strokeStyle = "rgba(255,218,157,0.78)";
                 ctx.lineWidth = 3;
                 ctx.beginPath();
-                ctx.arc(x, y, 57 * pulse, 0, Math.PI * 2);
+                ctx.arc(x, y, 51 * pulse, 0, Math.PI * 2);
                 ctx.stroke();
                 ctx.restore();
                 ctx.fillStyle = "#FFD89B";
-                ctx.font = "900 23px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+                ctx.font = "900 21px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
                 ctx.textAlign = "center";
-                ctx.fillText("SIGUIENTE DESTINO", x, y - 82);
+                ctx.fillText("SIGUIENTE DESTINO", x, y - 62);
                 ctx.fillStyle = "#FFB84D";
                 ctx.beginPath();
-                ctx.moveTo(x, y - 58);
-                ctx.lineTo(x - 10, y - 72);
-                ctx.lineTo(x + 10, y - 72);
+                ctx.moveTo(x, y - 42);
+                ctx.lineTo(x - 9, y - 56);
+                ctx.lineTo(x + 9, y - 56);
                 ctx.closePath();
                 ctx.fill();
             }
@@ -411,7 +411,7 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
                 ctx.strokeStyle = hovered ? "#FFFFFF" : item.accent;
                 ctx.lineWidth = hovered ? 7 : 5;
                 ctx.beginPath();
-                ctx.arc(x, y, active ? 36 + Math.sin(t * 2.3) * 2 : 36, 0, Math.PI * 2);
+                ctx.arc(x, y, active ? 34 + Math.sin(t * 2.3) * 2 : 34, 0, Math.PI * 2);
                 ctx.stroke();
                 ctx.restore();
             }
@@ -422,31 +422,22 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
             }
             ctx.fillStyle = unlocked ? item.accent : "#405865";
             ctx.beginPath();
-            ctx.arc(x, y, next ? (item.id === "sun" ? 30 : 25) : item.id === "sun" ? 23 : 17, 0, Math.PI * 2);
+            ctx.arc(x, y, next ? (item.id === "sun" ? 28 : 24) : item.id === "sun" ? 22 : 17, 0, Math.PI * 2);
             ctx.fill();
             ctx.restore();
             if (done) {
                 ctx.strokeStyle = "#5CFF9D";
                 ctx.lineWidth = 4;
                 ctx.beginPath();
-                ctx.arc(x, y, next ? 35 : 28, 0, Math.PI * 2);
+                ctx.arc(x, y, next ? 33 : 27, 0, Math.PI * 2);
                 ctx.stroke();
             }
             ctx.fillStyle = hovered || next ? "#FFFFFF" : unlocked ? "#E8FAFF" : "#6E838D";
-            ctx.font = `${next ? "900 24px" : "800 22px"} ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
+            ctx.font = `${next ? "900 23px" : "800 21px"} ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
             ctx.textAlign = "center";
-            ctx.fillText(item.name.toUpperCase(), x, y + 64);
-            solarMap.hitZones.push({ type: "destination", index: i, circle: { x, y, r: next ? 60 : 48 } });
+            ctx.fillText(item.name.toUpperCase(), x, y + 52);
+            solarMap.hitZones.push({ type: "destination", index: i, circle: { x, y, r: next ? 56 : 45 } });
         }
-        ctx.textAlign = "center";
-        ctx.fillStyle = nextIndex >= 0 ? "#FFD89B" : "#BCEBFA";
-        ctx.font = "850 25px system-ui, -apple-system, Segoe UI, Roboto, Arial";
-        const footer = nextIndex >= 0
-            ? `SIGUIENTE DESTINO: ${SOLAR_MISSION[nextIndex].name.toUpperCase()} · SELECCIÓNALO PARA CONTINUAR`
-            : state.currentIndex === SOLAR_MISSION.length - 1 && state.task.completed
-                ? "RUTA HELIOS COMPLETA · PUEDES VOLVER A CUALQUIER DESTINO DESBLOQUEADO"
-                : "LOS DESTINOS DESBLOQUEADOS PUEDEN SELECCIONARSE EN CUALQUIER MOMENTO";
-        ctx.fillText(footer, canvas.width / 2, 377);
         ctx.textAlign = "left";
         texture.needsUpdate = true;
     }

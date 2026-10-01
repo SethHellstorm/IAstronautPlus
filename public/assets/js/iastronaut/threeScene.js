@@ -1,4 +1,4 @@
-import { APP_BASE, BG_IMAGE, MISSION_BG_DIR, FLOATING_ASSETS, ASTRONAUT_SIDE_OFFSET, ASTRONAUT_SCALE_MULT, PANEL_DISTANCE_DEFAULT, PANEL_DISTANCE_XR_DEFAULT, HIT_ZONES, } from "./config.js";
+import { APP_BASE, BG_IMAGE, MISSION_BG_DIR, MISSION_AUDIO_DIR, FLOATING_ASSETS, ASTRONAUT_SIDE_OFFSET, ASTRONAUT_SCALE_MULT, PANEL_DISTANCE_DEFAULT, PANEL_DISTANCE_XR_DEFAULT, HIT_ZONES, } from "./config.js";
 import { createUIState, createPanel, drawPanelFactory, addBubble, clearBubblesBySource } from "./uiPanel.js";
 import { createTTSPlayer, createVoiceGuide } from "./voice.js";
 import { createMicChatController } from "./chat.js";
@@ -7,6 +7,7 @@ import { setupXRInput } from "./inputXR.js";
 import { createFloatingMissionPanels } from "./floatingPanels.js";
 import { createMissionDirector } from "./missionDirector.js";
 import { createMissionWorld } from "./missionWorld.js";
+import { getMissionAudioId } from "./missionAudioCatalog.js";
 function isMobileUA() {
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 }
@@ -231,21 +232,60 @@ function createDesktopHelp(renderer) {
     applyPanelScale();
     const drawPanel = drawPanelFactory({ THREE, panelCanvas, ctx, panelTex, state: uiState });
     const tts = createTTSPlayer();
-    const voiceGuide = createVoiceGuide({ ttsPlayer: tts });
+    const voiceGuide = createVoiceGuide({ ttsPlayer: tts, localAudioBasePath: MISSION_AUDIO_DIR });
+    const WELCOME_SESSION_KEY = "iastronaut.missionWelcomePlayed";
     let welcomeSpoken = false;
-    const welcomeVoice = "Bienvenido a Operación Helios. Soy IAstronaut y estaré contigo durante la misión. Antes de empezar, puedes revisar el objetivo, la información científica y la bitácora en los paneles. Cuando estés listo, selecciona el botón Iniciar operación; desde ahí te iré guiando paso a paso.";
-    function startWelcomeVoice() {
-        if (welcomeSpoken)
-            return;
+    let welcomePromise = null;
+    const welcomeVoice = "Bienvenido a la Operación Helios. Soy IAstronaut y te acompañaré durante la misión. Antes de empezar, puedes revisar el objetivo, la información científica y la bitácora en los paneles. Cuando estés listo, selecciona Iniciar operación. A partir de ahí, te guiaré paso a paso.";
+    function hasPlayedWelcome() {
+        if (welcomeSpoken || window.__iastronautWelcomePlayed)
+            return true;
+        try {
+            return sessionStorage.getItem(WELCOME_SESSION_KEY) === "1";
+        }
+        catch (_) {
+            return false;
+        }
+    }
+    function markWelcomePlayed() {
         welcomeSpoken = true;
-        voiceGuide.speak(welcomeVoice, { interrupt: false, remember: true });
+        window.__iastronautWelcomePlayed = true;
+        try {
+            sessionStorage.setItem(WELCOME_SESSION_KEY, "1");
+        }
+        catch (_) { }
+    }
+    function startWelcomeVoice() {
+        if (hasPlayedWelcome()) {
+            welcomeSpoken = true;
+            return Promise.resolve(true);
+        }
+        if (welcomePromise)
+            return welcomePromise;
+        welcomePromise = Promise.resolve(
+            voiceGuide.playLocal("mission_welcome", { interrupt: false, remember: false })
+        ).then((played) => {
+            if (played)
+                markWelcomePlayed();
+            return !!played;
+        }).finally(() => {
+            welcomePromise = null;
+        });
+        return welcomePromise;
     }
     async function activateVoiceGuide() {
         await voiceGuide.unlock?.();
-        startWelcomeVoice();
+        if (hasPlayedWelcome()) {
+            welcomeSpoken = true;
+            return;
+        }
+        if (welcomePromise)
+            await welcomePromise;
+        if (!hasPlayedWelcome())
+            await startWelcomeVoice();
     }
-    // La petición TTS comienza al cargar; la primera interacción solo desbloquea el audio si el navegador lo exige.
-    startWelcomeVoice();
+    if (!hasPlayedWelcome())
+        startWelcomeVoice();
     voiceGuide.unlock?.();
     window.addEventListener("pointerdown", activateVoiceGuide, { once: true, capture: true });
     window.addEventListener("keydown", activateVoiceGuide, { once: true, capture: true });
@@ -344,7 +384,12 @@ function createDesktopHelp(renderer) {
             const sequence = ++narrationSequence;
             const shouldBlock = blockingNarrationKinds.has(meta.kind);
             missionWorld?.setNarrationLocked?.(shouldBlock, canonicalText);
-            const speech = voiceGuide.speak(canonicalText, { interrupt: true, remember: true });
+            const audioId = meta.audioId || getMissionAudioId(canonicalText);
+            if (!audioId)
+                console.warn("No existe un MP3 asociado a la narración de misión:", canonicalText);
+            const speech = audioId
+                ? voiceGuide.playLocal(audioId, { interrupt: true, remember: true })
+                : Promise.resolve(false);
             Promise.resolve(speech).finally(() => {
                 if (sequence === narrationSequence)
                     missionWorld?.setNarrationLocked?.(false);
@@ -364,7 +409,10 @@ function createDesktopHelp(renderer) {
         vrExitControl.setVisible(renderer.xr.isPresenting && panelMesh.visible);
     }
     director.subscribe((nextState) => syncVRExitVisibility(nextState));
-    addBubble(uiState, drawPanel, welcomeVoice, "bot", { source: "mission" });
+    if (!window.__iastronautWelcomeBubbleShown) {
+        addBubble(uiState, drawPanel, welcomeVoice, "bot", { source: "mission" });
+        window.__iastronautWelcomeBubbleShown = true;
+    }
     function centerPanelDesktopLikeReload() {
         applyPanelScale();
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);

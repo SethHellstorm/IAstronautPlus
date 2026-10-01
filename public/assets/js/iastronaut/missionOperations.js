@@ -69,7 +69,7 @@ export const MISSION_OPERATIONS = Object.freeze({
             timeout: "La ventana térmica terminó, pero podemos seguir explorando el cráter sin prisa.",
         },
         targets: [
-            { id: "mercury-rim-a", label: "BORDE A", detail: "+312 °C", voiceName: "el borde iluminado", voiceResult: "Borde iluminado: trescientos doce grados.", hiddenDetail: true, kind: "scan", world: [-2.55, 0.34, -2.5] },
+            { id: "mercury-rim-a", label: "BORDE A", detail: "+312 °C", voiceName: "el borde iluminado", voiceResult: "Borde iluminado: trescientos doce grados.", hiddenDetail: true, kind: "scan", world: [-1.78, 0.10, -2.62] },
             { id: "mercury-floor", label: "FONDO", detail: "−48 °C", voiceName: "el fondo del cráter", voiceResult: "Fondo: menos cuarenta y ocho grados.", hiddenDetail: true, kind: "scan", world: [0.0, -0.08, -3.52] },
             { id: "mercury-shadow", label: "SOMBRA", detail: "−173 °C · HIELO", voiceName: "la depresión en sombra", voiceResult: "Sombra: menos ciento setenta y tres grados. Hay hielo.", hiddenDetail: true, kind: "scan", world: [1.35, 0.08, -3.18] },
         ],
