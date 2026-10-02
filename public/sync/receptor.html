@@ -49,10 +49,37 @@
 
 <body>
     <h1>Vincular computadora</h1>
+    <button id="cambiarFuncion" type="button" disabled>
+        Cambiar función
+    </button>
     <button id="cerrarAcceso" type="button">Cerrar sesión</button>
     <p id="estadoCierre" role="status" aria-live="polite"></p>
 
     <p>Introduce el código que aparece en la página emisora.</p>
+
+    <section aria-labelledby="tituloChaleco">
+    <h2 id="tituloChaleco">Chaleco por Bluetooth</h2>
+
+    <p>Prueba de comunicación con el ESP32 simulador.</p>
+
+    <button id="conectarChaleco" type="button" disabled>
+        Conectar ESP32
+    </button>
+
+    <button id="probarChaleco" type="button" disabled>
+        Probar comunicación
+    </button>
+
+    <button id="desconectarChaleco" type="button" disabled>
+        Desconectar
+    </button>
+
+    <p id="estadoChaleco" role="status" aria-live="polite">
+        Bluetooth sin inicializar.
+    </p>
+
+    <pre id="respuestaChaleco" aria-live="polite"></pre>
+</section>
 
     <form id="formulario">
         <label for="codigo">Código de vinculación</label>
@@ -86,6 +113,7 @@
 </section>
 
     <script src="./control-acceso.js"></script>
+    <script src="./vest-bluetooth.js"></script>
     <script>
         const formulario = document.getElementById('formulario');
         const entradaCodigo = document.getElementById('codigo');
@@ -379,7 +407,10 @@
     }
 
     document.getElementById('cerrarAcceso').addEventListener('click', ControlAcceso.cerrar);
-    ControlAcceso.iniciar(recuperarSesionReceptora);
+    ControlAcceso.iniciar(() => {
+        recuperarSesionReceptora();
+        ChalecoBluetooth.habilitar();
+    });
     </script>
 </body>
 </html>

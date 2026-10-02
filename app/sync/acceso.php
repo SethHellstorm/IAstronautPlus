@@ -119,8 +119,10 @@ function exigirAccesoSync(): void
                 ((m.rol = 'emisor' AND s.token_emisor_hash = ?) OR (m.rol = 'receptor' AND s.token_receptor_hash = ?))");
             $q->execute([$id, $token, $token]);
             if (!$q->fetchColumn()) {
-                cerrarAccesoSync($pdo);
-                responder(401, ['error' => 'La sincronización terminó. Ingresa nuevamente.', 'codigo' => 'ACCESO_REQUERIDO']);
+                responder(409, [
+                    'error' => 'La vinculación ya no está disponible.',
+                    'codigo' => 'SINCRONIZACION_TERMINADA'
+                ]);
             }
         }
     } catch (Throwable $e) {

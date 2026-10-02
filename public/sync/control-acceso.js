@@ -15,6 +15,7 @@ const ControlAcceso = (() => {
     function terminar(notificar = true) {
         if (terminado) return;
         terminado = true;
+        window.dispatchEvent(new Event('sync:acceso-terminado'));
         clearTimeout(temporizador);
         document.querySelectorAll('button, input').forEach(e => e.disabled = true);
         try { limpiar(); } catch (_) { /* El servidor ya invalida los tokens. */ }
@@ -34,6 +35,14 @@ const ControlAcceso = (() => {
         if (respuesta.status === 401) {
             const datos = await respuesta.clone().json();
             if (datos.codigo === 'ACCESO_REQUERIDO') {
+                terminar();
+                throw errorAcceso();
+            }
+        }
+        if (respuesta.status === 409) {
+            const datos = await respuesta.clone().json();
+
+            if (datos.codigo === 'SINCRONIZACION_TERMINADA') {
                 terminar();
                 throw errorAcceso();
             }
@@ -83,11 +92,81 @@ const ControlAcceso = (() => {
             controles.forEach((e, i) => e.disabled = estados[i]);
             mensaje.textContent = 'Acceso autorizado.';
             recuperar();
+            const cambiar = document.getElementById('cambiarFuncion');
+
+            if (cambiar) {
+                cambiar.disabled = false;
+                cambiar.onclick = cambiarFuncion;
+            }
             temporizador = setTimeout(vigilar, 2000);
         } catch (e) {
             if (e.codigo !== 'ACCESO_REQUERIDO') mensaje.textContent = e.message + ' Recarga para reintentar.';
         }
     }
+    async function cambiarFuncion() {
+    if (terminado) return;
+
+    // Detiene nuevas solicitudes y descarta las respuestas pendientes.
+    terminado = true;
+    clearTimeout(temporizador);
+
+    // El receptor escucha este evento y desconecta Bluetooth.
+    window.dispatchEvent(new Event('sync:acceso-terminado'));
+
+    document.querySelectorAll('button, input').forEach(elemento => {
+        elemento.disabled = true;
+    });
+
+    const boton = document.getElementById('cambiarFuncion');
+    const estado = document.getElementById('estadoCierre');
+
+    async function intentarCambio() {
+        boton.disabled = true;
+        estado.textContent = 'Terminando la vinculación…';
+
+        try {
+            // Usamos fetch directamente porque solicitar() ya está detenido.
+            const respuesta = await fetch('../api/sync/cambiar-funcion.php', {
+                method: 'POST',
+                credentials: 'same-origin',
+                cache: 'no-store',
+                signal: AbortSignal.timeout(8000)
+            });
+
+            const datos = await respuesta.json();
+
+            const accesoVencido =
+                respuesta.status === 401 &&
+                datos.codigo === 'ACCESO_REQUERIDO';
+
+            if (
+                !accesoVencido &&
+                (!respuesta.ok || datos.seleccion_disponible !== true)
+            ) {
+                throw new Error(
+                    datos.error || 'No se pudo cambiar de función.'
+                );
+            }
+
+            limpiar();
+
+            // Avisa también a las otras pestañas del mismo acceso.
+            canal?.postMessage({ tipo: 'cerrado', accesoId });
+
+            window.location.replace('./acceso.html');
+        } catch (error) {
+            estado.textContent =
+                'No se pudo confirmar el cambio. ' +
+                'La sincronización local está detenida; pulsa Reintentar.';
+
+            boton.textContent = 'Reintentar cambio';
+            boton.disabled = false;
+            boton.onclick = intentarCambio;
+        }
+    }
+
+    await intentarCambio();
+}
     async function cerrar() {
         const boton = document.getElementById('cerrarAcceso');
         const estado = document.getElementById('estadoCierre');

@@ -52,7 +52,7 @@
 <body>
     <h1>Acceso a sincronización</h1>
 
-    <form id="formulario">
+    <form id="formulario" hidden>
         <label for="password">Contraseña compartida</label>
 
         <input
@@ -136,6 +136,57 @@
                 boton.disabled = false;
             }
         });
+        async function comprobarAccesoInicial() {
+            formulario.hidden = true;
+            opciones.hidden = true;
+            boton.disabled = true;
+            mensaje.textContent = 'Comprobando acceso…';
+
+            try {
+                const respuesta = await fetch('../api/sync/estado-acceso.php', {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(8000)
+                });
+
+                const datos = await respuesta.json();
+
+                if (
+                    respuesta.status === 401 &&
+                    datos.codigo === 'ACCESO_REQUERIDO'
+                ) {
+                    formulario.hidden = false;
+                    boton.disabled = false;
+                    mensaje.textContent = 'Ingresa la contraseña para continuar.';
+                    entrada.focus();
+                    return;
+                }
+
+                if (!respuesta.ok || datos.autorizado !== true) {
+                    throw new Error(
+                        datos.error || 'No se pudo comprobar el acceso.'
+                    );
+                }
+
+                opciones.hidden = false;
+                mensaje.textContent = 'Selecciona una función.';
+            } catch (error) {
+                mensaje.textContent =
+                    (error.name === 'TimeoutError'
+                        ? 'El servidor tardó demasiado.'
+                        : error.message) +
+                    ' Recarga la página para reintentar.';
+            }
+        }
+
+        window.addEventListener('pageshow', (evento) => {
+            if (evento.persisted) {
+                window.location.reload();
+            }
+        });
+
+        comprobarAccesoInicial();
     </script>
 </body>
 </html>
