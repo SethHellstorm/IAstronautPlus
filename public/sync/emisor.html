@@ -66,6 +66,7 @@
         Enviar evento de prueba
     </button>
     <p id="estadoEnvio" role="status" aria-live="polite"></p>
+    <p id="abrirExperiencia" hidden><a href="../index.php?sync=1" style="color:#80e3f2">Iniciar misiones con el simulador conectado</a></p>
 
     <script src="./control-acceso.js"></script>
     <script>
@@ -132,6 +133,7 @@
                 });
 
                 const datos = await respuesta.json();
+                if (ControlAcceso.terminado) return;
 
                 if (!respuesta.ok) {
                     throw new Error(datos.error || 'No se pudo enviar el evento.');
@@ -181,6 +183,7 @@
         });
 
         const datos = await respuesta.json();
+        if (ControlAcceso.terminado) return;
 
         if (!respuesta.ok) {
             if ([401, 410].includes(respuesta.status)) {
@@ -205,6 +208,7 @@
         sesion.estado = datos.estado;
 
         if (sesion.estado === 'vinculada') {
+            document.getElementById('abrirExperiencia').hidden = false;
             botonEnviar.disabled = false;
             recuperarEnvioPendiente();
             mensaje.textContent =
@@ -238,6 +242,7 @@
                 });
 
                 const datos = await respuesta.json();
+                if (ControlAcceso.terminado) return;
 
                 if (!respuesta.ok) {
                     throw new Error(

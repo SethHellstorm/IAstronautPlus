@@ -12,13 +12,21 @@ const ControlAcceso = (() => {
             if (clave.startsWith('iastronaut_sync_')) sessionStorage.removeItem(clave);
         }
     }
-    function terminar(notificar = true) {
-        if (terminado) return;
+    let apagadoLocal;
+    function detenerLocal() {
+        if (apagadoLocal) return apagadoLocal;
         terminado = true;
-        window.dispatchEvent(new Event('sync:acceso-terminado'));
         clearTimeout(temporizador);
+        const esperas = [];
+        window.dispatchEvent(new CustomEvent('sync:acceso-terminado', {detail: {esperas}}));
         document.querySelectorAll('button, input').forEach(e => e.disabled = true);
-        try { limpiar(); } catch (_) { /* El servidor ya invalida los tokens. */ }
+        apagadoLocal = Promise.allSettled(esperas);
+        return apagadoLocal;
+    }
+    async function terminar(notificar = true) {
+        if (terminado) return;
+        await detenerLocal();
+        try { limpiar(); } catch (_) { /* El servidor invalida los tokens. */ }
         if (notificar) canal?.postMessage({tipo: 'cerrado', accesoId});
         window.location.replace('./acceso.html');
     }
@@ -43,7 +51,7 @@ const ControlAcceso = (() => {
             const datos = await respuesta.clone().json();
 
             if (datos.codigo === 'SINCRONIZACION_TERMINADA') {
-                terminar();
+                terminar(false);
                 throw errorAcceso();
             }
         }
@@ -52,6 +60,7 @@ const ControlAcceso = (() => {
     async function comprobar() {
         const respuesta = await solicitar('../api/sync/estado-acceso.php');
         const datos = await respuesta.json();
+        if (terminado) throw errorAcceso();
         if (!respuesta.ok || datos.autorizado !== true || typeof datos.acceso_id !== 'string') {
             throw new Error(datos.error || 'No se pudo comprobar el acceso.');
         }
@@ -103,87 +112,40 @@ const ControlAcceso = (() => {
             if (e.codigo !== 'ACCESO_REQUERIDO') mensaje.textContent = e.message + ' Recarga para reintentar.';
         }
     }
-    async function cambiarFuncion() {
-    if (terminado) return;
-
-    // Detiene nuevas solicitudes y descarta las respuestas pendientes.
-    terminado = true;
-    clearTimeout(temporizador);
-
-    // El receptor escucha este evento y desconecta Bluetooth.
-    window.dispatchEvent(new Event('sync:acceso-terminado'));
-
-    document.querySelectorAll('button, input').forEach(elemento => {
-        elemento.disabled = true;
-    });
-
-    const boton = document.getElementById('cambiarFuncion');
-    const estado = document.getElementById('estadoCierre');
-
-    async function intentarCambio() {
-        boton.disabled = true;
-        estado.textContent = 'Terminando la vinculación…';
-
-        try {
-            // Usamos fetch directamente porque solicitar() ya está detenido.
-            const respuesta = await fetch('../api/sync/cambiar-funcion.php', {
-                method: 'POST',
-                credentials: 'same-origin',
-                cache: 'no-store',
-                signal: AbortSignal.timeout(8000)
-            });
-
-            const datos = await respuesta.json();
-
-            const accesoVencido =
-                respuesta.status === 401 &&
-                datos.codigo === 'ACCESO_REQUERIDO';
-
-            if (
-                !accesoVencido &&
-                (!respuesta.ok || datos.seleccion_disponible !== true)
-            ) {
-                throw new Error(
-                    datos.error || 'No se pudo cambiar de función.'
-                );
-            }
-
-            limpiar();
-
-            // Avisa también a las otras pestañas del mismo acceso.
-            canal?.postMessage({ tipo: 'cerrado', accesoId });
-
-            window.location.replace('./acceso.html');
-        } catch (error) {
-            estado.textContent =
-                'No se pudo confirmar el cambio. ' +
-                'La sincronización local está detenida; pulsa Reintentar.';
-
-            boton.textContent = 'Reintentar cambio';
-            boton.disabled = false;
-            boton.onclick = intentarCambio;
-        }
-    }
-
-    await intentarCambio();
-}
-    async function cerrar() {
-        const boton = document.getElementById('cerrarAcceso');
+    async function salir(cambio) {
+        if (terminado) return;
+        // Detiene comandos y solicitudes antes de esperar la red.
+        const apagado = detenerLocal();
+        const boton = document.getElementById(cambio ? 'cambiarFuncion' : 'cerrarAcceso');
         const estado = document.getElementById('estadoCierre');
-        boton.disabled = true;
-        estado.textContent = 'Cerrando sesión…';
-        try {
-            const respuesta = await solicitar('../api/sync/cerrar-sesion.php', {method: 'POST'});
-            const datos = await respuesta.json();
-            if (!respuesta.ok || datos.cerrado !== true) throw new Error(datos.error || 'Cierre no confirmado.');
-            terminar();
-        } catch (e) {
-            if (e.codigo !== 'ACCESO_REQUERIDO') {
-                estado.textContent = 'No se pudo confirmar el cierre. Puedes reintentarlo.';
+        async function intentar() {
+            boton.disabled = true;
+            estado.textContent = cambio ? 'Terminando la vinculación...' : 'Cerrando sesión...';
+            try {
+                const respuesta = await fetch('../api/sync/' + (cambio ? 'cambiar-funcion.php' : 'cerrar-sesion.php'), {
+                    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+                    signal: AbortSignal.timeout(8000)
+                });
+                const datos = await respuesta.json();
+                const vencido = respuesta.status === 401 && datos.codigo === 'ACCESO_REQUERIDO';
+                if (!vencido && (!respuesta.ok || datos[cambio ? 'seleccion_disponible' : 'cerrado'] !== true)) {
+                    throw new Error(datos.error || 'Operación no confirmada.');
+                }
+                await apagado;
+                try { limpiar(); } catch (_) { /* No se reutiliza la vinculacion del servidor. */ }
+                canal?.postMessage({tipo: 'cerrado', accesoId});
+                window.location.replace('./acceso.html');
+            } catch (_) {
+                estado.textContent = 'No se pudo confirmar la salida. La sincronización local está detenida. Pulsa Reintentar.';
+                boton.textContent = 'Reintentar';
                 boton.disabled = false;
+                boton.onclick = intentar;
             }
         }
+        await intentar();
     }
+    function cambiarFuncion() { return salir(true); }
+    function cerrar() { return salir(false); }
     window.addEventListener('pageshow', e => { if (e.persisted) window.location.reload(); });
     return {iniciar, solicitar, cerrar, get terminado() { return terminado; }};
 })();

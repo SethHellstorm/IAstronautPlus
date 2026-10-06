@@ -34,6 +34,16 @@ if (!is_string($clave) || !preg_match('/^[a-f0-9]{32}$/', $clave)) {
     responder(400, ['error' => 'La clave del evento no es válida.']);
 }
 
+$tipo = $datos['tipo'] ?? 'prueba';
+$contenidoEvento = ['mensaje' => 'Hola desde la página emisora'];
+if ($tipo === 'haptico') {
+    require_once dirname(__DIR__, 3) . '/app/sync/efectos.php';
+    try { $contenidoEvento = efectoSync($datos['efecto'] ?? null, $datos['escena'] ?? null); }
+    catch (InvalidArgumentException $e) { responder(400, ['error' => $e->getMessage()]); }
+} elseif ($tipo !== 'prueba') {
+    responder(400, ['error' => 'Tipo de evento no permitido.']);
+}
+
 try {
     $conexion = require dirname(__DIR__, 3) . '/app/sync/conexion.php';
 
@@ -55,9 +65,9 @@ try {
         responder(403, ['error' => 'Credencial o sesión no disponible.']);
     }
 
-    // Por ahora solo permitimos este evento fijo de prueba.
+    // El servidor fija las duraciones: no acepta tiempos enviados por el cliente.
     $contenido = json_encode(
-        ['mensaje' => 'Hola desde la página emisora'],
+        $contenidoEvento,
         JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
     );
 
@@ -65,8 +75,8 @@ try {
         "INSERT INTO eventos (
             sesion_id, clave_evento, tipo, datos, expira_en
         ) VALUES (
-            :sesion_id, :clave, 'prueba', :datos,
-            DATE_ADD(UTC_TIMESTAMP(), INTERVAL 60 SECOND)
+            :sesion_id, :clave, :tipo, :datos,
+            DATE_ADD(UTC_TIMESTAMP(), INTERVAL :vigencia SECOND)
         )"
     );
 
@@ -77,6 +87,8 @@ try {
             'sesion_id' => $sesion['id'],
             'clave' => $clave,
             'datos' => $contenido,
+            'tipo' => $tipo,
+            'vigencia' => $tipo === 'haptico' ? 5 : 60,
         ]);
 
         $eventoId = (int) $conexion->lastInsertId();
@@ -86,7 +98,7 @@ try {
         }
 
         $buscarEvento = $conexion->prepare(
-            "SELECT id
+            "SELECT id, tipo, datos
              FROM eventos
              WHERE sesion_id = :sesion_id
                AND clave_evento = :clave"
@@ -103,8 +115,17 @@ try {
             throw $error;
         }
 
+        if ($existente['tipo'] !== $tipo || json_decode($existente['datos'], true, 512, JSON_THROW_ON_ERROR) != $contenidoEvento) {
+            responder(409, ['error' => 'La clave ya pertenece a otro evento.']);
+        }
         $eventoId = (int) $existente['id'];
         $duplicado = true;
+    }
+
+    if ($tipo === 'haptico' && $contenidoEvento['efecto'] === 'apagar') {
+        $cancelar = $conexion->prepare("UPDATE eventos SET expira_en = UTC_TIMESTAMP()
+            WHERE sesion_id = ? AND tipo = 'haptico' AND confirmado_en IS NULL AND id < ?");
+        $cancelar->execute([$sesion['id'], $eventoId]);
     }
 
     responder($duplicado ? 200 : 201, [

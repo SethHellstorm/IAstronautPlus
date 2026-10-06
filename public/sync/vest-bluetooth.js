@@ -8,8 +8,6 @@ const ChalecoBluetooth = (() => {
 
     let caracteristicaComandos = null;
     let caracteristicaEstado = null;
-    let esperandoPong = false;
-    let tiempoPong = null;
 
     const conectar = document.getElementById('conectarChaleco');
     const desconectar = document.getElementById('desconectarChaleco');
@@ -18,6 +16,8 @@ const ChalecoBluetooth = (() => {
     let dispositivo = null;
     let autorizado = false;
     let ocupado = false;
+    let deteniendo = false;
+    let apagado = null;
 
     function actualizarBotones() {
         conectar.disabled =
@@ -28,7 +28,6 @@ const ChalecoBluetooth = (() => {
         probar.disabled =
             !autorizado ||
             ocupado ||
-            esperandoPong ||
             !dispositivo?.gatt?.connected ||
             !caracteristicaComandos ||
             !caracteristicaEstado;
@@ -48,10 +47,6 @@ const ChalecoBluetooth = (() => {
         actualizarBotones();
     }
     function limpiarComunicacion() {
-        clearTimeout(tiempoPong);
-        tiempoPong = null;
-        esperandoPong = false;
-
         caracteristicaEstado?.removeEventListener(
             'characteristicvaluechanged',
             recibirEstado
@@ -65,16 +60,11 @@ const ChalecoBluetooth = (() => {
     function recibirEstado(evento) {
         if (!autorizado || ControlAcceso.terminado) return;
 
-        const mensaje = new TextDecoder().decode(evento.target.value).trim();
-        respuesta.textContent = 'ESP32: ' + mensaje;
+        const mensaje = new TextDecoder()
+            .decode(evento.target.value)
+            .trim();
 
-        if (mensaje === 'pong' && esperandoPong) {
-            clearTimeout(tiempoPong);
-            tiempoPong = null;
-            esperandoPong = false;
-            estado.textContent = 'Comunicación confirmada: ping → pong.';
-            actualizarBotones();
-        }
+        respuesta.textContent = 'ESP32: ' + mensaje;
     }
 
     function desconectarDispositivo() {
@@ -92,19 +82,14 @@ const ChalecoBluetooth = (() => {
         estado.textContent = 'Selecciona ChalecoVR-Simulador…';
 
         try {
+            dispositivo?.removeEventListener('gattserverdisconnected', alDesconectar);
             dispositivo = await navigator.bluetooth.requestDevice({
                 filters: [{ services: [SERVICIO] }]
             });
 
             if (!autorizado || ControlAcceso.terminado) return;
 
-            dispositivo.addEventListener(
-                'gattserverdisconnected',
-                () => {
-                    estado.textContent = 'Se desconectó el ESP32.';
-                    actualizarBotones();
-                }
-            );
+            dispositivo.addEventListener('gattserverdisconnected', alDesconectar);
 
             estado.textContent = 'Conectando…';
 
@@ -149,71 +134,205 @@ const ChalecoBluetooth = (() => {
 
     desconectar.addEventListener('click', desconectarDispositivo);
 
-    function detener() {
+    function alDesconectar(evento) {
+        if (evento.target !== dispositivo) return;
+        limpiarComunicacion();
+        estado.textContent = 'Se desconectó el ESP32.';
+        actualizarBotones();
+    }
+
+    function detener(evento) {
         autorizado = false;
-        desconectarDispositivo();
+        deteniendo = true;
+        actualizarBotones();
+        if (!apagado) {
+            const comandos = caracteristicaComandos;
+            apagado = new Promise(resolve => {
+                let finalizado = false;
+                const fin = () => {
+                    if (finalizado) return;
+                    finalizado = true;
+                    clearTimeout(limite);
+                    desconectarDispositivo();
+                    resolve();
+                };
+                const limite = setTimeout(fin, 500);
+                if (!comandos || !dispositivo?.gatt?.connected) { fin(); return; }
+                try {
+                    // Mejor esfuerzo: la desconexion siempre ocurre, aun sin respuesta.
+                    Promise.resolve(comandos.writeValueWithResponse(
+                        new TextEncoder().encode(JSON.stringify({type: 'allOff'}))
+                    )).then(fin, fin);
+                } catch (_) { fin(); }
+            });
+        }
+        evento?.detail?.esperas?.push(apagado);
+        return apagado;
     }
 
     window.addEventListener('sync:acceso-terminado', detener);
-    window.addEventListener('pagehide', detener);
-    probar.addEventListener('click', async () => {
+    window.addEventListener('pagehide', () => {
+        autorizado = false;
+        deteniendo = true;
+        desconectarDispositivo();
+    });
+
+    let perfiles = null;
+    async function enviarEfecto(efecto, duration) {
+        if (!perfiles) {
+            try {
+                const r = await fetch('./efectos.json', {cache: 'no-store'});
+                if (!r.ok) throw new Error('No se pudieron cargar los tiempos.');
+                perfiles = await r.json();
+            } catch (error) { error.noEnviado = true; throw error; }
+        }
+        if (!Object.hasOwn(perfiles, efecto) || perfiles[efecto].duration !== duration) {
+            throw Object.assign(new Error('Duracion de efecto no permitida.'), {noEnviado: true});
+        }
+        // effect_sim nunca activa los comandos termicos del firmware del chaleco real.
+        return enviarComando({type: 'effect_sim', effect: efecto, duration},
+            'effect_sim:' + efecto + ',dur=' + duration);
+    }
+    function enviarVibracionPrueba() {
+        return enviarComando({type: 'vibration', channel: 'all', action: 'on', duration: 200},
+            'vibration:on,ch=all,dur=200');
+    }
+    function enviarComando(comando, confirmacion) {
+        if (!autorizado || ControlAcceso.terminado) {
+            return Promise.reject(Object.assign(new Error('El acceso terminó.'), {noEnviado: true}));
+        }
+
         if (
-            !autorizado ||
-            ControlAcceso.terminado ||
-            esperandoPong ||
             !dispositivo?.gatt?.connected ||
             !caracteristicaComandos ||
             !caracteristicaEstado
         ) {
-            return;
+            return Promise.reject(Object.assign(new Error('Conecta primero el ESP32.'), {noEnviado: true}));
         }
 
-        esperandoPong = true;
+        if (ocupado) {
+            return Promise.reject(Object.assign(new Error('Bluetooth está ocupado.'), {noEnviado: true}));
+        }
+
         ocupado = true;
         actualizarBotones();
 
+        const equipo = dispositivo;
+        const comandos = caracteristicaComandos;
+        const notificaciones = caracteristicaEstado;
+
+        estado.textContent = 'Enviando efecto simulado…';
         respuesta.textContent = '';
-        estado.textContent = 'Enviando ping…';
 
-        // Se inicia antes del envío para poder recibir una respuesta inmediata.
-        tiempoPong = setTimeout(() => {
-            if (!esperandoPong) return;
+        return new Promise((resolve, reject) => {
+            let finalizado = false;
+            let escrituraLista = false;
+            let confirmacionRecibida = false;
 
-            esperandoPong = false;
-            estado.textContent =
-                'No llegó pong en 3 segundos. Desconecta y vuelve a conectar.';
+            const temporizador = setTimeout(() => {
+                finalizar(new Error(
+                    'No se confirmó el comando en 3 segundos. Reconecta el ESP32.'
+                ));
+            }, 3000);
 
-            // Evita confundir una respuesta tardía con una nueva prueba.
-            desconectarDispositivo();
-            estado.textContent =
-                'Prueba agotada: no llegó pong. Vuelve a conectar el ESP32.';
-        }, 3000);
+            function finalizar(error = null) {
+                if (finalizado) return;
+                finalizado = true;
 
-        try {
-            const datos = new TextEncoder().encode(
-                JSON.stringify({ type: 'ping' })
+                clearTimeout(temporizador);
+                notificaciones.removeEventListener(
+                    'characteristicvaluechanged',
+                    recibirConfirmacion
+                );
+                equipo.removeEventListener(
+                    'gattserverdisconnected',
+                    cancelar
+                );
+                window.removeEventListener('sync:acceso-terminado', cancelar);
+                window.removeEventListener('pagehide', cancelar);
+
+                if (error && !deteniendo) {
+                    // Impide reutilizar esta conexión con respuestas tardías.
+                    desconectarDispositivo();
+                }
+
+                ocupado = false;
+                actualizarBotones();
+
+                if (error) {
+                    reject(error);
+                } else {
+                    estado.textContent = 'ESP32 confirmó el efecto simulado.';
+                    resolve();
+                }
+            }
+
+            function comprobarFinalizacion() {
+                if (finalizado) return;
+
+                if (!autorizado || ControlAcceso.terminado || !equipo.gatt.connected) {
+                    cancelar();
+                } else if (escrituraLista && confirmacionRecibida) {
+                    finalizar();
+                }
+            }
+
+            function cancelar() {
+                finalizar(new Error('La comunicación fue interrumpida.'));
+            }
+
+            function recibirConfirmacion(evento) {
+                if (!autorizado || ControlAcceso.terminado) {
+                    cancelar();
+                    return;
+                }
+
+                const mensaje = new TextDecoder()
+                    .decode(evento.target.value)
+                    .trim();
+
+                if (mensaje.startsWith('error:')) {
+                    finalizar(new Error('El ESP32 rechazó el comando: ' + mensaje));
+                    return;
+                }
+
+                if (mensaje === confirmacion) {
+                    confirmacionRecibida = true;
+                    comprobarFinalizacion();
+                }
+            }
+
+            notificaciones.addEventListener(
+                'characteristicvaluechanged',
+                recibirConfirmacion
             );
+            equipo.addEventListener('gattserverdisconnected', cancelar);
+            window.addEventListener('sync:acceso-terminado', cancelar);
+            window.addEventListener('pagehide', cancelar);
 
-            await caracteristicaComandos.writeValueWithResponse(datos);
+            const datos = new TextEncoder().encode(JSON.stringify(comando));
 
-            if (
-                esperandoPong &&
-                autorizado &&
-                !ControlAcceso.terminado
-            ) {
-                estado.textContent = 'Ping enviado. Esperando pong…';
+            try {
+                comandos.writeValueWithResponse(datos).then(() => {
+                    escrituraLista = true;
+                    comprobarFinalizacion();
+                }).catch(finalizar);
+            } catch (error) {
+                finalizar(error);
             }
+        });
+    }
+
+    probar.addEventListener('click', async () => {
+        try {
+            await enviarVibracionPrueba();
         } catch (error) {
-            desconectarDispositivo();
-
             if (autorizado && !ControlAcceso.terminado) {
-                estado.textContent = 'Falló la prueba: ' + error.message;
+                estado.textContent = error.message;
             }
-        } finally {
-            ocupado = false;
-            actualizarBotones();
         }
     });
 
-    return { habilitar };
+
+    return { habilitar, enviarVibracionPrueba, enviarEfecto };
 })();

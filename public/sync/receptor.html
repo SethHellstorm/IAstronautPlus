@@ -128,9 +128,28 @@
         // Evita mostrar varias veces el mismo evento durante esta página abierta.
         const eventosMostrados = new Set();
         const confirmacionesPendientes = new Set();
+        // Se escribe ANTES de enviar: una recarga no repite un resultado desconocido.
+        const eventosInciertos = new Set();
+        function guardarInciertos() {
+            sessionStorage.setItem(claveConfirmaciones() + '_inciertos', JSON.stringify([...eventosInciertos]));
+        }
+        async function confirmarPendientes() {
+            guardarConfirmaciones();
+            for (const id of [...confirmacionesPendientes]) {
+                if (ControlAcceso.terminado) return;
+                await confirmarEvento(id);
+                if (ControlAcceso.terminado) return;
+                // Primero quitamos la marca de incertidumbre; el pendiente sigue siendo recuperable.
+                eventosInciertos.delete(id);
+                guardarInciertos();
+                confirmacionesPendientes.delete(id);
+                try { guardarConfirmaciones(); }
+                catch (error) { confirmacionesPendientes.add(id); throw error; }
+            }
+        }
 
         function claveConfirmaciones() {
-            return 'iastronaut_sync_confirmaciones_' + sesionReceptora.codigo;
+            return 'iastronaut_sync_confirmaciones_ble_v1_' + sesionReceptora.codigo;
         }
 
         function guardarConfirmaciones() {
@@ -141,6 +160,11 @@
         }
 
         function recuperarConfirmaciones() {
+            const inciertos = JSON.parse(sessionStorage.getItem(claveConfirmaciones() + '_inciertos') || '[]');
+            if (!Array.isArray(inciertos) || !inciertos.every(id => Number.isSafeInteger(id) && id > 0)) {
+                throw new Error('El registro de envíos no es válido.');
+            }
+            inciertos.forEach(id => eventosInciertos.add(id));
             const texto = sessionStorage.getItem(claveConfirmaciones());
 
             if (!texto) return;
@@ -175,6 +199,7 @@
         });
 
         const datos = await respuesta.json();
+        if (ControlAcceso.terminado) return;
 
         if (!respuesta.ok) {
             const error = new Error(
@@ -196,6 +221,10 @@
             let continuar = true;
 
             try {
+                // Las confirmaciones anteriores no dependen de una nueva consulta ni de Bluetooth.
+                await confirmarPendientes();
+                if (ControlAcceso.terminado) return;
+                const inicioConsulta = performance.now();
                 const respuesta = await ControlAcceso.solicitar('../api/sync/recibir-eventos.php', {
                     method: 'GET',
                     headers: {
@@ -206,6 +235,7 @@
                 });
 
                 const datos = await respuesta.json();
+                if (ControlAcceso.terminado) return;
 
                 if (!respuesta.ok) {
                     if ([401, 403, 410].includes(respuesta.status)) {
@@ -223,44 +253,86 @@
 
             mensaje.textContent = 'Computadora vinculada a la sesión ' + sesionReceptora.codigo + '.';
 
+            // Comprueba que podemos guardar el estado antes de enviar al ESP32.
+            guardarConfirmaciones();
+
             for (const evento of datos.eventos) {
-                if (eventosMostrados.has(evento.id)) {
+                if (ControlAcceso.terminado) return;
+
+                if (!Number.isSafeInteger(evento.id) || evento.id <= 0) {
+                    throw new Error('El servidor devolvió un evento inválido.');
+                }
+
+                // Mostrar un evento no significa que el ESP32 lo haya aceptado.
+                if (!eventosMostrados.has(evento.id)) {
+                    const elemento = document.createElement('li');
+
+                    elemento.textContent =
+                        'Evento ' + evento.id +
+                        ' · ' + evento.tipo +
+                        ' · ' + (evento.datos?.mensaje ?? 'Sin mensaje');
+
+                    listaEventos.appendChild(elemento);
+                    eventosMostrados.add(evento.id);
+                }
+
+                // Ya fue aceptado por Bluetooth: solo falta confirmar en la API.
+                if (confirmacionesPendientes.has(evento.id) || eventosInciertos.has(evento.id)) {
                     continue;
                 }
 
-                const elemento = document.createElement('li');
+                if (!['prueba', 'haptico'].includes(evento.tipo)) {
+                    throw new Error('Tipo de evento todavía no compatible con el chaleco.');
+                }
 
-                elemento.textContent =
-                    'Evento ' + evento.id +
-                    ' · ' + evento.tipo +
-                    ' · ' + (evento.datos?.mensaje ?? 'Sin mensaje');
+                // Plazo relativo calculado por MySQL; no depende del reloj de la PC.
+                if (!Number.isFinite(evento.vigencia_ms) || evento.vigencia_ms < 0) {
+                    throw new Error('El evento no contiene una vigencia válida.');
+                }
+                if (performance.now() - inicioConsulta >= evento.vigencia_ms) continue;
 
-                listaEventos.appendChild(elemento);
-                eventosMostrados.add(evento.id);
+                estadoRecepcion.textContent =
+                    'Enviando evento ' + evento.id + ' al ESP32…';
+
+                eventosInciertos.add(evento.id);
+                guardarInciertos();
+                try {
+                    if (evento.tipo === 'haptico') {
+                        await ChalecoBluetooth.enviarEfecto(evento.datos?.efecto, evento.datos?.duration);
+                    } else {
+                        await ChalecoBluetooth.enviarVibracionPrueba();
+                    }
+                } catch (error) {
+                    if (ControlAcceso.terminado) return;
+                    if (error.noEnviado === true) {
+                        eventosInciertos.delete(evento.id);
+                        guardarInciertos();
+                    } else {
+                        error.message += ' Resultado incierto: este evento no se reenviará automáticamente.';
+                    }
+                    throw error;
+                }
+
+                if (ControlAcceso.terminado) return;
+
+                // Solo llegamos aquí cuando el ESP32 respondió correctamente.
                 confirmacionesPendientes.add(evento.id);
                 guardarConfirmaciones();
+                eventosInciertos.delete(evento.id);
+                guardarInciertos();
+                await confirmarPendientes();
+
+                estadoRecepcion.textContent =
+                    'ESP32 aceptó el evento ' + evento.id +
+                    '. Confirmado en el servidor.';
             }
-            // Aseguramos que los pendientes estén guardados antes de confirmarlos.
-            guardarConfirmaciones();
-
-            for (const eventoId of [...confirmacionesPendientes]) {
-                await confirmarEvento(eventoId);
-
-                confirmacionesPendientes.delete(eventoId);
-
-            try {
-                guardarConfirmaciones();
-            } catch (error) {
-                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
-                // Conservamos el pendiente para volver a intentar.
-                confirmacionesPendientes.add(eventoId);
-                throw error;
-            }
-        }
+            await confirmarPendientes();
 
             estadoRecepcion.textContent =
                 'Escuchando. Mostrados: ' + eventosMostrados.size +
-                '. Confirmaciones pendientes: ' + confirmacionesPendientes.size + '.';
+                '. Confirmaciones pendientes: ' + confirmacionesPendientes.size +
+                '. Sin confirmación Bluetooth (no se repiten): ' +
+                ([...eventosInciertos].filter(id => !confirmacionesPendientes.has(id)).join(', ') || 'ninguno') + '.';
         } catch (error) {
                 if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
             if ([401, 403, 410].includes(error.status)) {
@@ -280,7 +352,7 @@
             }
 
             estadoRecepcion.textContent = continuar
-                ? 'Falló una consulta o confirmación. Reintentando…'
+                ? error.message + ' Se volverá a consultar el servidor.'
                 : error.message + ' Crea y vincula una sesión nueva.';
         }
 
@@ -314,6 +386,7 @@
                 });
 
                 const datos = await respuesta.json();
+                if (ControlAcceso.terminado) return;
 
                 if (!respuesta.ok) {
                     throw new Error(

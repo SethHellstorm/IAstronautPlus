@@ -15,7 +15,7 @@ function readSaved() {
 function clone(value) {
     return JSON.parse(JSON.stringify(value));
 }
-export function createMissionDirector({ onSceneChange, onMissionMessage }) {
+export function createMissionDirector({ onSceneChange, onMissionMessage, onHaptic }) {
     const homeIndex = SOLAR_MISSION.findIndex((item) => item.home);
     const savedRecord = readSaved();
     const saved = savedRecord.data;
@@ -45,6 +45,9 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
     let lastEventSecond = -1;
     const listeners = new Set();
     visited.add(SOLAR_MISSION[currentIndex].id);
+    function haptic(effect) {
+        try { onHaptic?.({effect, scene: current().id}); } catch (_) { }
+    }
     function current() {
         return SOLAR_MISSION[currentIndex];
     }
@@ -306,13 +309,13 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
         const task = taskState();
         if (task.completed)
             return { completed: true, accepted: false };
-        if (operation().type === "sequence")
-            return interactSequence(targetId);
-        if (operation().type === "survey")
-            return interactSurvey(targetId);
-        if (operation().type === "align")
-            return interactAlign(targetId);
-        return { completed: false, accepted: false };
+        let result = { completed: false, accepted: false };
+        if (operation().type === "sequence") result = interactSequence(targetId);
+        if (operation().type === "survey") result = interactSurvey(targetId);
+        if (operation().type === "align") result = interactAlign(targetId);
+        if (result.completed) haptic('mision_completa');
+        else if (result.accepted) haptic('interaccion');
+        return result;
     }
     async function applyScene(announce) {
         const requestId = ++sceneRequest;
@@ -331,6 +334,8 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
             return false;
         traveling = false;
         backgroundFallback = !!result?.fallback;
+        if (current().id === 'sun') haptic('calor_sol');
+        if (current().id === 'neptune') haptic('frio_neptuno');
         emit();
         if (announce)
             notify(`${current().intro} ${operation()?.briefing || ""}`);
@@ -346,6 +351,7 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
         }
         if (index === currentIndex)
             return true;
+        haptic('apagar');
         currentIndex = index;
         visited.add(current().id);
         selectedTopic = MISSION_TOPIC_ORDER[0];

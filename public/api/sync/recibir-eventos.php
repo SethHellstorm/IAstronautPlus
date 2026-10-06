@@ -41,7 +41,8 @@ try {
     }
 
     $buscarEventos = $conexion->prepare(
-        "SELECT id, clave_evento, tipo, datos, creado_en, expira_en
+        "SELECT id, clave_evento, tipo, datos, creado_en, expira_en,
+                TIMESTAMPDIFF(MICROSECOND, UTC_TIMESTAMP(6), expira_en) DIV 1000 AS vigencia_ms
          FROM eventos
          WHERE sesion_id = :sesion_id
            AND confirmado_en IS NULL
@@ -58,6 +59,7 @@ try {
 
     foreach ($eventos as &$evento) {
         $evento['id'] = (int) $evento['id'];
+        $evento['vigencia_ms'] = max(0, (int) $evento['vigencia_ms']);
 
         $evento['datos'] = json_decode(
             $evento['datos'],

@@ -17,25 +17,7 @@ try {
 
     $conexion->beginTransaction();
 
-    // Cierra las vinculaciones asociadas a este acceso.
-    $cerrar = $conexion->prepare(
-        "UPDATE sesiones s
-         JOIN sync_acceso_sesiones a ON a.sesion_id = s.id
-         SET s.estado = 'cerrada'
-         WHERE a.acceso_id = ?"
-    );
-    $cerrar->execute([$accesoId]);
-
-    // Separa nuestro acceso antes de propagar el cierre.
-    // Así podemos elegir otra función sin ingresar la contraseña.
-    $separar = $conexion->prepare(
-        'DELETE FROM sync_acceso_sesiones WHERE acceso_id = ?'
-    );
-    $separar->execute([$accesoId]);
-
-    // El otro extremo pierde la vinculación y su autorización,
-    // conforme al comportamiento de cierre que ya implementamos.
-    invalidarAccesosSync($conexion, versionPasswordSync());
+    cambiarFuncionAccesoSync($conexion, $accesoId);
 
     $conexion->commit();
 

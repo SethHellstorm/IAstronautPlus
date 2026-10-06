@@ -47,27 +47,31 @@ function conexionAccesoSync(): PDO
 
 function invalidarAccesosSync(PDO $pdo, string $version): void
 {
-    // Propaga el cierre a los dos extremos y a sus otras vinculaciones.
+    // Caducar una vinculacion no equivale a revocar la autorizacion.
+    $pdo->exec("UPDATE sesiones SET estado = 'cerrada'
+        WHERE estado <> 'cerrada' AND (expira_en <= UTC_TIMESTAMP()
+            OR (estado = 'esperando' AND codigo_expira_en <= UTC_TIMESTAMP()))");
+    $q = $pdo->prepare("UPDATE sync_accesos SET revocado = 1
+        WHERE revocado = 0 AND (expira_en <= UTC_TIMESTAMP() OR version_password <> ?)");
+    $q->execute([$version]);
+    // Una perdida real de autorizacion se propaga solo por vinculaciones activas.
     do {
-        $q = $pdo->prepare("UPDATE sync_accesos SET revocado = 1
-            WHERE revocado = 0 AND (expira_en <= UTC_TIMESTAMP() OR version_password <> ?)");
-        $q->execute([$version]);
-        $cerradas = $pdo->exec("UPDATE sesiones s
-            LEFT JOIN sync_acceso_sesiones m ON m.sesion_id = s.id AND m.rol = 'emisor'
-            LEFT JOIN sync_accesos a ON a.id = m.acceso_id
-            SET s.estado = 'cerrada'
-            WHERE s.estado <> 'cerrada' AND (a.id IS NULL OR a.revocado = 1
-                OR s.expira_en <= UTC_TIMESTAMP()
-                OR (s.estado = 'esperando' AND s.codigo_expira_en <= UTC_TIMESTAMP()))");
-        $cerradas += $pdo->exec("UPDATE sesiones s
-            JOIN sync_acceso_sesiones m ON m.sesion_id = s.id
-            JOIN sync_accesos a ON a.id = m.acceso_id
-            SET s.estado = 'cerrada' WHERE s.estado <> 'cerrada' AND a.revocado = 1");
-        $revocadas = $pdo->exec("UPDATE sync_accesos a
-            JOIN sync_acceso_sesiones m ON m.acceso_id = a.id
-            JOIN sesiones s ON s.id = m.sesion_id
-            SET a.revocado = 1 WHERE a.revocado = 0 AND s.estado = 'cerrada'");
-    } while ($cerradas > 0 || $revocadas > 0);
+        $revocadas = $pdo->exec("UPDATE sync_accesos destino
+            JOIN sync_acceso_sesiones md ON md.acceso_id = destino.id
+            JOIN sesiones s ON s.id = md.sesion_id AND s.estado <> 'cerrada'
+            JOIN sync_acceso_sesiones mo ON mo.sesion_id = s.id
+            JOIN sync_accesos origen ON origen.id = mo.acceso_id
+            SET destino.revocado = 1 WHERE destino.revocado = 0 AND origen.revocado = 1");
+    } while ($revocadas > 0);
+    $pdo->exec("UPDATE sesiones s
+        LEFT JOIN sync_acceso_sesiones m ON m.sesion_id = s.id AND m.rol = 'emisor'
+        LEFT JOIN sync_accesos a ON a.id = m.acceso_id
+        SET s.estado = 'cerrada'
+        WHERE s.estado <> 'cerrada' AND (a.id IS NULL OR a.revocado = 1)");
+    $pdo->exec("UPDATE sesiones s
+        JOIN sync_acceso_sesiones m ON m.sesion_id = s.id
+        JOIN sync_accesos a ON a.id = m.acceso_id
+        SET s.estado = 'cerrada' WHERE s.estado <> 'cerrada' AND a.revocado = 1");
 }
 
 function versionPasswordSync(): string
@@ -88,6 +92,39 @@ function cerrarAccesoSync(PDO $pdo): void
     invalidarAccesosSync($pdo, versionPasswordSync());
     unset($_SESSION['sync_acceso']);
     session_write_close();
+}
+
+// El llamador mantiene la transaccion y el bloqueo de sincronizacion.
+function cambiarFuncionAccesoSync(PDO $conexion, string $accesoId): void
+{
+    // Conserva nuestro acceso; revoca los pares de vinculaciones activas.
+    $pares = $conexion->prepare("UPDATE sync_accesos destino
+        JOIN sync_acceso_sesiones otro ON otro.acceso_id = destino.id
+        JOIN sesiones s ON s.id = otro.sesion_id AND s.estado <> 'cerrada'
+        JOIN sync_acceso_sesiones propio ON propio.sesion_id = s.id
+        SET destino.revocado = 1 WHERE propio.acceso_id = ? AND destino.id <> ?");
+    $pares->execute([$accesoId, $accesoId]);
+
+    // Cierra las vinculaciones asociadas a este acceso.
+    $cerrar = $conexion->prepare(
+        "UPDATE sesiones s
+         JOIN sync_acceso_sesiones a ON a.sesion_id = s.id
+         SET s.estado = 'cerrada'
+         WHERE a.acceso_id = ?"
+    );
+    $cerrar->execute([$accesoId]);
+
+    // Separa nuestro acceso antes de propagar el cierre.
+    // Así podemos elegir otra función sin ingresar la contraseña.
+    $separar = $conexion->prepare(
+        'DELETE FROM sync_acceso_sesiones WHERE acceso_id = ?'
+    );
+    $separar->execute([$accesoId]);
+
+    // El otro extremo pierde la vinculación y su autorización,
+    // conforme al comportamiento de cierre que ya implementamos.
+    invalidarAccesosSync($conexion, versionPasswordSync());
+
 }
 
 function asociarAccesoSync(PDO $pdo, int $sesionId, string $rol): void
