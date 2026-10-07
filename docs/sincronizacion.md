@@ -206,3 +206,18 @@ SELECT EVENT_NAME, STATUS, INTERVAL_VALUE, INTERVAL_FIELD, STARTS, LAST_EXECUTED
 FROM information_schema.EVENTS
 WHERE EVENT_SCHEMA = DATABASE() AND EVENT_NAME = 'sync_limpieza_diaria';
 ```
+
+## HTTPS temporal para visor
+
+Desde la raiz del proyecto, ejecutar `powershell -ExecutionPolicy Bypass -File scripts/iniciar-https.ps1`.
+Requiere el cliente oficial `.tools/cloudflared.exe`. El script inicia PHP en
+127.0.0.1:8081 y publica un tunel temporal de Cloudflare. Ctrl+C termina el tunel
+y el proceso PHP iniciado por el script. No abrir otro servidor en ese puerto.
+La URL impresa cambia entre ejecuciones; agregar `/sync/acceso.html` y usarla
+tanto en el visor (emisor) como en Chrome de la computadora (receptor).
+
+El router de este modo reconoce HTTPS del proxy local para cookies Secure,
+protege la experiencia y las acciones con el acceso sync y bloquea archivos
+ocultos y assets/vendor. No sirve la raiz privada del proyecto. El servidor HTTP
+anterior no se modifica. El tunel necesita Internet, MySQL y la computadora
+encendidos. Este modo temporal no es un despliegue de produccion.
