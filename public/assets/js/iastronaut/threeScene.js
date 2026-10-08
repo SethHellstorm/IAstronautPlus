@@ -1,3 +1,4 @@
+import { createMissionHaptics } from "./missionHaptics.js";
 import { APP_BASE, BG_IMAGE, MISSION_BG_DIR, MISSION_AUDIO_DIR, FLOATING_ASSETS, ASTRONAUT_SIDE_OFFSET, ASTRONAUT_SCALE_MULT, PANEL_DISTANCE_DEFAULT, PANEL_DISTANCE_XR_DEFAULT, HIT_ZONES, } from "./config.js";
 import { createUIState, createPanel, drawPanelFactory, addBubble, clearBubblesBySource } from "./uiPanel.js";
 import { createTTSPlayer, createVoiceGuide } from "./voice.js";
@@ -383,7 +384,10 @@ function createDesktopHelp(renderer) {
         "descent_move",
         "align_feedback"
     ]);
+    const sendHaptic = createMissionHaptics({ base: APP_BASE,
+        notify: message => addBubble(uiState, drawPanel, message, "bot", { source: "sync" }) });
     const director = createMissionDirector({
+        onHaptic: sendHaptic,
         onSceneChange: loadMissionBackground,
         onMissionMessage: (message, meta = {}) => {
             const canonicalText = String(meta.voiceText || message || "").trim();

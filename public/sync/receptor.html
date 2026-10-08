@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sincronización · Receptor</title>
+
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 650px;
+            margin: 40px auto;
+            padding: 24px;
+            background: #101827;
+            color: white;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 12px;
+        }
+
+        input, button {
+            box-sizing: border-box;
+            padding: 16px;
+            font-size: 20px;
+            margin-bottom: 16px;
+        }
+
+        input {
+            width: 100%;
+            text-transform: uppercase;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: default;
+        }
+
+        #mensaje {
+            line-height: 1.6;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Vincular computadora</h1>
+    <button id="cambiarFuncion" type="button" disabled>
+        Cambiar función
+    </button>
+    <button id="cerrarAcceso" type="button">Cerrar sesión</button>
+    <p id="estadoCierre" role="status" aria-live="polite"></p>
+
+    <p>Introduce el código que aparece en la página emisora.</p>
+
+    <section aria-labelledby="tituloChaleco">
+    <h2 id="tituloChaleco">Chaleco por Bluetooth</h2>
+
+    <p>Prueba de comunicación con el ESP32 simulador.</p>
+
+    <button id="conectarChaleco" type="button" disabled>
+        Conectar ESP32
+    </button>
+
+    <button id="probarChaleco" type="button" disabled>
+        Probar comunicación
+    </button>
+
+    <button id="desconectarChaleco" type="button" disabled>
+        Desconectar
+    </button>
+
+    <p id="estadoChaleco" role="status" aria-live="polite">
+        Bluetooth sin inicializar.
+    </p>
+
+    <pre id="respuestaChaleco" aria-live="polite"></pre>
+</section>
+
+    <form id="formulario">
+        <label for="codigo">Código de vinculación</label>
+
+        <input
+            id="codigo"
+            name="codigo"
+            type="text"
+            minlength="6"
+            maxlength="6"
+            autocomplete="off"
+            autocapitalize="characters"
+            spellcheck="false"
+            required
+        >
+
+        <button id="vincular" type="submit">Vincular sesión</button>
+    </form>
+
+    <p id="mensaje" role="status" aria-live="polite">
+        Todavía no estás vinculado.
+    </p>
+    <section>
+    <h2>Eventos recibidos</h2>
+
+    <p id="estadoRecepcion" role="status" aria-live="polite">
+        Vincula una sesión para comenzar.
+    </p>
+
+    <ul id="listaEventos"></ul>
+</section>
+
+    <script src="./control-acceso.js"></script>
+    <script src="./vest-bluetooth.js"></script>
+    <script>
+        const formulario = document.getElementById('formulario');
+        const entradaCodigo = document.getElementById('codigo');
+        const botonVincular = document.getElementById('vincular');
+        const mensaje = document.getElementById('mensaje');
+
+        let sesionReceptora = null;
+        const CLAVE_SESION_RECEPTORA = 'iastronaut_sync_receptor';
+        const estadoRecepcion = document.getElementById('estadoRecepcion');
+        const listaEventos = document.getElementById('listaEventos');
+
+        // Evita mostrar varias veces el mismo evento durante esta página abierta.
+        const eventosMostrados = new Set();
+        const confirmacionesPendientes = new Set();
+        // Se escribe ANTES de enviar: una recarga no repite un resultado desconocido.
+        const eventosInciertos = new Set();
+        function guardarInciertos() {
+            sessionStorage.setItem(claveConfirmaciones() + '_inciertos', JSON.stringify([...eventosInciertos]));
+        }
+        async function confirmarPendientes() {
+            guardarConfirmaciones();
+            for (const id of [...confirmacionesPendientes]) {
+                if (ControlAcceso.terminado) return;
+                await confirmarEvento(id);
+                if (ControlAcceso.terminado) return;
+                // Primero quitamos la marca de incertidumbre; el pendiente sigue siendo recuperable.
+                eventosInciertos.delete(id);
+                guardarInciertos();
+                confirmacionesPendientes.delete(id);
+                try { guardarConfirmaciones(); }
+                catch (error) { confirmacionesPendientes.add(id); throw error; }
+            }
+        }
+
+        function claveConfirmaciones() {
+            return 'iastronaut_sync_confirmaciones_ble_v1_' + sesionReceptora.codigo;
+        }
+
+        function guardarConfirmaciones() {
+            sessionStorage.setItem(
+                claveConfirmaciones(),
+                JSON.stringify([...confirmacionesPendientes])
+            );
+        }
+
+        function recuperarConfirmaciones() {
+            const inciertos = JSON.parse(sessionStorage.getItem(claveConfirmaciones() + '_inciertos') || '[]');
+            if (!Array.isArray(inciertos) || !inciertos.every(id => Number.isSafeInteger(id) && id > 0)) {
+                throw new Error('El registro de envíos no es válido.');
+            }
+            inciertos.forEach(id => eventosInciertos.add(id));
+            const texto = sessionStorage.getItem(claveConfirmaciones());
+
+            if (!texto) return;
+
+            const ids = JSON.parse(texto);
+
+            if (
+                !Array.isArray(ids) ||
+                !ids.every(id => Number.isSafeInteger(id) && id > 0)
+            ) {
+                throw new Error('Las confirmaciones guardadas no son válidas.');
+            }
+
+        for (const id of ids) {
+            confirmacionesPendientes.add(id);
+
+            // Ya se mostraron antes de la recarga.
+            eventosMostrados.add(id);
+        }
+    }
+
+        async function confirmarEvento(eventoId) {
+            const respuesta = await ControlAcceso.solicitar('../api/sync/confirmar-evento.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: 'Bearer ' + sesionReceptora.token_receptor
+                },
+                body: JSON.stringify({ evento_id: eventoId }),
+                cache: 'no-store',
+                signal: AbortSignal.timeout(8000)
+        });
+
+        const datos = await respuesta.json();
+        if (ControlAcceso.terminado) return;
+
+        if (!respuesta.ok) {
+            const error = new Error(
+                datos.error || 'No se pudo confirmar el evento.'
+            );
+
+            error.status = respuesta.status;
+            throw error;
+        }
+
+        if (datos.confirmado !== true || datos.evento_id !== eventoId) {
+            throw new Error('Respuesta de confirmación no válida.');
+        }
+    }
+
+        async function consultarEventos() {
+            if (!sesionReceptora || ControlAcceso.terminado) return;
+
+            let continuar = true;
+
+            try {
+                // Las confirmaciones anteriores no dependen de una nueva consulta ni de Bluetooth.
+                await confirmarPendientes();
+                if (ControlAcceso.terminado) return;
+                const inicioConsulta = performance.now();
+                const respuesta = await ControlAcceso.solicitar('../api/sync/recibir-eventos.php', {
+                    method: 'GET',
+                    headers: {
+                        Authorization: 'Bearer ' + sesionReceptora.token_receptor
+                    },
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(8000)
+                });
+
+                const datos = await respuesta.json();
+                if (ControlAcceso.terminado) return;
+
+                if (!respuesta.ok) {
+                    if ([401, 403, 410].includes(respuesta.status)) {
+                    continuar = false;
+                }
+
+                throw new Error(
+                    datos.error || 'No se pudieron consultar los eventos.'
+                );
+            }
+
+            if (!Array.isArray(datos.eventos)) {
+                throw new Error('El servidor devolvió una respuesta no válida.');
+            }
+
+            mensaje.textContent = 'Computadora vinculada a la sesión ' + sesionReceptora.codigo + '.';
+
+            // Comprueba que podemos guardar el estado antes de enviar al ESP32.
+            guardarConfirmaciones();
+
+            for (const evento of datos.eventos) {
+                if (ControlAcceso.terminado) return;
+
+                if (!Number.isSafeInteger(evento.id) || evento.id <= 0) {
+                    throw new Error('El servidor devolvió un evento inválido.');
+                }
+
+                // Mostrar un evento no significa que el ESP32 lo haya aceptado.
+                if (!eventosMostrados.has(evento.id)) {
+                    const elemento = document.createElement('li');
+
+                    elemento.textContent =
+                        'Evento ' + evento.id +
+                        ' · ' + evento.tipo +
+                        ' · ' + (evento.datos?.mensaje ?? 'Sin mensaje');
+
+                    listaEventos.appendChild(elemento);
+                    eventosMostrados.add(evento.id);
+                }
+
+                // Ya fue aceptado por Bluetooth: solo falta confirmar en la API.
+                if (confirmacionesPendientes.has(evento.id) || eventosInciertos.has(evento.id)) {
+                    continue;
+                }
+
+                if (!['prueba', 'haptico'].includes(evento.tipo)) {
+                    throw new Error('Tipo de evento todavía no compatible con el chaleco.');
+                }
+
+                // Plazo relativo calculado por MySQL; no depende del reloj de la PC.
+                if (!Number.isFinite(evento.vigencia_ms) || evento.vigencia_ms < 0) {
+                    throw new Error('El evento no contiene una vigencia válida.');
+                }
+                if (performance.now() - inicioConsulta >= evento.vigencia_ms) continue;
+
+                estadoRecepcion.textContent =
+                    'Enviando evento ' + evento.id + ' al ESP32…';
+
+                eventosInciertos.add(evento.id);
+                guardarInciertos();
+                try {
+                    if (evento.tipo === 'haptico') {
+                        await ChalecoBluetooth.enviarEfecto(evento.datos?.efecto, evento.datos?.duration);
+                    } else {
+                        await ChalecoBluetooth.enviarVibracionPrueba();
+                    }
+                } catch (error) {
+                    if (ControlAcceso.terminado) return;
+                    if (error.noEnviado === true) {
+                        eventosInciertos.delete(evento.id);
+                        guardarInciertos();
+                    } else {
+                        error.message += ' Resultado incierto: este evento no se reenviará automáticamente.';
+                    }
+                    throw error;
+                }
+
+                if (ControlAcceso.terminado) return;
+
+                // Solo llegamos aquí cuando el ESP32 respondió correctamente.
+                confirmacionesPendientes.add(evento.id);
+                guardarConfirmaciones();
+                eventosInciertos.delete(evento.id);
+                guardarInciertos();
+                await confirmarPendientes();
+
+                estadoRecepcion.textContent =
+                    'ESP32 aceptó el evento ' + evento.id +
+                    '. Confirmado en el servidor.';
+            }
+            await confirmarPendientes();
+
+            estadoRecepcion.textContent =
+                'Escuchando. Mostrados: ' + eventosMostrados.size +
+                '. Confirmaciones pendientes: ' + confirmacionesPendientes.size +
+                '. Sin confirmación Bluetooth (no se repiten): ' +
+                ([...eventosInciertos].filter(id => !confirmacionesPendientes.has(id)).join(', ') || 'ninguno') + '.';
+        } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
+            if ([401, 403, 410].includes(error.status)) {
+                continuar = false;
+            }
+
+            if (!continuar) {
+                try {
+                    sessionStorage.removeItem(CLAVE_SESION_RECEPTORA);
+                } catch (_) {
+
+                }
+                sesionReceptora = null;
+
+                mensaje.textContent =
+                    'La sesión ya no está disponible. Recarga para vincular una nueva.';
+            }
+
+            estadoRecepcion.textContent = continuar
+                ? error.message + ' Se volverá a consultar el servidor.'
+                : error.message + ' Crea y vincula una sesión nueva.';
+        }
+
+        if (continuar) {
+            setTimeout(consultarEventos, 2000);
+        }
+    }
+
+        formulario.addEventListener('submit', async (evento) => {
+            evento.preventDefault();
+
+            const codigo = entradaCodigo.value.trim().toUpperCase();
+
+            if (!/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(codigo)) {
+                mensaje.textContent = 'Introduce un código válido de seis caracteres.';
+                return;
+            }
+
+            botonVincular.disabled = true;
+            entradaCodigo.disabled = true;
+            mensaje.textContent = 'Vinculando…';
+
+            try {
+                const respuesta = await ControlAcceso.solicitar('../api/sync/vincular-sesion.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    cache: 'no-store',
+                    body: JSON.stringify({ codigo })
+                });
+
+                const datos = await respuesta.json();
+                if (ControlAcceso.terminado) return;
+
+                if (!respuesta.ok) {
+                    throw new Error(
+                        datos.error || 'No se pudo vincular la sesión.'
+                    );
+                }
+
+                if (typeof datos.token_receptor !== 'string') {
+                    throw new Error('La respuesta no contiene la credencial del receptor.');
+                }
+
+                sesionReceptora = datos;
+
+                try {
+                    sessionStorage.setItem(
+                        CLAVE_SESION_RECEPTORA,
+                        JSON.stringify(sesionReceptora)
+                    );
+                } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
+                    console.warn('No se pudo guardar la sesión receptora.');
+                }
+
+                mensaje.textContent =
+                    'Computadora vinculada a la sesión ' +
+                    sesionReceptora.codigo +
+                    '.';
+
+                botonVincular.textContent = 'Sesión vinculada';
+                consultarEventos();
+            } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
+                mensaje.textContent = 'Error: ' + error.message;
+                botonVincular.disabled = false;
+                entradaCodigo.disabled = false;
+            }
+        });
+
+        function recuperarSesionReceptora() {
+            let guardada;
+
+        try {
+            const texto = sessionStorage.getItem(CLAVE_SESION_RECEPTORA);
+
+            if (!texto) return;
+
+            guardada = JSON.parse(texto);
+
+            if (
+                !guardada ||
+                typeof guardada.codigo !== 'string' ||
+                !/^[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{6}$/.test(guardada.codigo) ||
+                typeof guardada.token_receptor !== 'string' ||
+                !/^[a-f0-9]{64}$/.test(guardada.token_receptor)
+            ) {
+                throw new Error('La sesión guardada no tiene un formato válido.');
+            }
+        } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
+            try {
+                sessionStorage.removeItem(CLAVE_SESION_RECEPTORA);
+            } catch (_) {
+                // El almacenamiento puede no estar disponible.
+            }
+
+            mensaje.textContent =
+                'No se pudo recuperar la sesión. Introduce un código nuevo.';
+
+            return;
+        }
+
+        sesionReceptora = guardada;
+
+        entradaCodigo.value = sesionReceptora.codigo;
+        entradaCodigo.disabled = true;
+        botonVincular.disabled = true;
+        botonVincular.textContent = 'Sesión recuperada';
+
+        mensaje.textContent = 'Sesión recuperada. Verificando con el servidor…';
+
+        try {
+            recuperarConfirmaciones();
+        } catch (error) {
+                if (error.codigo === 'ACCESO_REQUERIDO' || ControlAcceso.terminado) return;
+            estadoRecepcion.textContent =
+                'No se pudieron recuperar las confirmaciones: ' + error.message;
+            return;
+        }
+
+        consultarEventos();
+    }
+
+    document.getElementById('cerrarAcceso').addEventListener('click', ControlAcceso.cerrar);
+    ControlAcceso.iniciar(() => {
+        recuperarSesionReceptora();
+        ChalecoBluetooth.habilitar();
+    });
+    </script>
+</body>
+</html>

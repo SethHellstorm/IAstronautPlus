@@ -91,3 +91,11 @@ El asistente también responde preguntas relacionadas con astronomía, exploraci
 
 ## Licencia
 GPLv3
+
+## Sincronizacion y simulador haptico
+
+La integracion conserva las misiones y el audio local de la fuente e incorpora
+acceso con contrasena, emisor/receptor, Bluetooth al ESP32 simulador, efectos
+limitados y limpieza diaria de MySQL. Consulta [la guia de sincronizacion](docs/sincronizacion.md)
+para configuracion, pruebas y HTTPS temporal. Usa `.env.example` como referencia;
+`.env` es privado y no debe versionarse.

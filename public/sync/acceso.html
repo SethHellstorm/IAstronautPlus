@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Acceso a sincronización</title>
+
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 650px;
+            margin: 40px auto;
+            padding: 24px;
+            background: #101827;
+            color: white;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 12px;
+        }
+
+        input, button {
+            box-sizing: border-box;
+            padding: 16px;
+            font-size: 18px;
+            margin-bottom: 16px;
+        }
+
+        input {
+            width: 100%;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+        }
+
+        a {
+            display: block;
+            padding: 16px;
+            margin-top: 12px;
+            background: #20344f;
+            color: #80e3f2;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Acceso a sincronización</h1>
+
+    <form id="formulario" hidden>
+        <label for="password">Contraseña compartida</label>
+
+        <input
+            id="password"
+            type="password"
+            autocomplete="current-password"
+            required
+        >
+
+        <button id="entrar" type="submit">Ingresar</button>
+    </form>
+
+    <p id="mensaje" role="status" aria-live="polite"></p>
+
+    <section id="opciones" hidden>
+        <h2>Selecciona una función</h2>
+
+        <a href="./emisor.html">Crear sesión — Emisor</a>
+        <a href="./receptor.html">Vincular con código — Receptor</a>
+    </section>
+
+    <script>
+        const formulario = document.getElementById('formulario');
+        const entrada = document.getElementById('password');
+        const boton = document.getElementById('entrar');
+        const mensaje = document.getElementById('mensaje');
+        const opciones = document.getElementById('opciones');
+        formulario.addEventListener('submit', async (evento) => {
+            evento.preventDefault();
+
+            boton.disabled = true;
+            mensaje.textContent = 'Verificando contraseña…';
+
+            try {
+                const respuesta = await fetch('../api/sync/iniciar-sesion.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                    body: JSON.stringify({
+                        password: entrada.value
+                    }),
+                    signal: AbortSignal.timeout(8000)
+                });
+
+                const datos = await respuesta.json();
+
+                if (!respuesta.ok) {
+                    const espera = respuesta.status === 429
+                        ? ' Espera ' + datos.reintentar_en + ' segundos.'
+                        : '';
+
+                    throw new Error(
+                        (datos.error || 'No se pudo iniciar sesión.') + espera
+                    );
+                }
+
+                if (datos.autorizado !== true) {
+                    throw new Error('Respuesta de autorización no válida.');
+                }
+
+                entrada.value = '';
+                for (const clave of Object.keys(sessionStorage)) {
+                    if (clave.startsWith('iastronaut_sync_')) sessionStorage.removeItem(clave);
+                }
+
+                formulario.hidden = true;
+                opciones.hidden = false;
+                mensaje.textContent = 'Acceso autorizado. Selecciona una función.';
+
+
+                // Aquí continúa tu código actual que oculta el formulario
+                // y muestra las opciones de emisor y receptor.
+            } catch (error) {
+                mensaje.textContent = error.name === 'TimeoutError'
+                    ? 'El servidor tardó demasiado. Intenta nuevamente.'
+                    : error.message;
+            } finally {
+                boton.disabled = false;
+            }
+        });
+        async function comprobarAccesoInicial() {
+            formulario.hidden = true;
+            opciones.hidden = true;
+            boton.disabled = true;
+            mensaje.textContent = 'Comprobando acceso…';
+
+            try {
+                const respuesta = await fetch('../api/sync/estado-acceso.php', {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    cache: 'no-store',
+                    signal: AbortSignal.timeout(8000)
+                });
+
+                const datos = await respuesta.json();
+
+                if (
+                    respuesta.status === 401 &&
+                    datos.codigo === 'ACCESO_REQUERIDO'
+                ) {
+                    formulario.hidden = false;
+                    boton.disabled = false;
+                    mensaje.textContent = 'Ingresa la contraseña para continuar.';
+                    entrada.focus();
+                    return;
+                }
+
+                if (!respuesta.ok || datos.autorizado !== true) {
+                    throw new Error(
+                        datos.error || 'No se pudo comprobar el acceso.'
+                    );
+                }
+
+                opciones.hidden = false;
+                mensaje.textContent = 'Selecciona una función.';
+            } catch (error) {
+                mensaje.textContent =
+                    (error.name === 'TimeoutError'
+                        ? 'El servidor tardó demasiado.'
+                        : error.message) +
+                    ' Recarga la página para reintentar.';
+            }
+        }
+
+        window.addEventListener('pageshow', (evento) => {
+            if (evento.persisted) {
+                window.location.reload();
+            }
+        });
+
+        comprobarAccesoInicial();
+    </script>
+</body>
+</html>

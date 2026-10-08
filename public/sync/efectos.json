@@ -1,0 +1,17 @@
+{
+  "interaccion": {
+    "duration": 200
+  },
+  "mision_completa": {
+    "duration": 450
+  },
+  "calor_sol": {
+    "duration": 3000
+  },
+  "frio_neptuno": {
+    "duration": 3000
+  },
+  "apagar": {
+    "duration": 0
+  }
+}

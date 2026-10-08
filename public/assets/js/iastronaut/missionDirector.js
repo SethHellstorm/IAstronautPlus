@@ -16,7 +16,7 @@ function readSaved() {
 function clone(value) {
     return JSON.parse(JSON.stringify(value));
 }
-export function createMissionDirector({ onSceneChange, onMissionMessage }) {
+export function createMissionDirector({ onSceneChange, onMissionMessage, onHaptic }) {
     const homeIndex = SOLAR_MISSION.findIndex((item) => item.home);
     const savedRecord = readSaved();
     const saved = savedRecord.data;
@@ -55,6 +55,9 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
     const announcedEventWarnings = new Set();
     const listeners = new Set();
     visited.add(SOLAR_MISSION[currentIndex].id);
+    function haptic(effect) {
+        try { onHaptic?.({ effect, scene: current().id }); } catch (_) { }
+    }
     function current() {
         return SOLAR_MISSION[currentIndex];
     }
@@ -658,23 +661,19 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
         const state = task.targets?.[targetId] || {};
         if ((op.type === "defense" || op.type === "pilot") && state.complete)
             return { completed: false, accepted: false, locked: true };
-        if (op.type === "assembly")
-            return interactAssembly(targetId);
-        if (op.type === "search")
-            return interactSearch(targetId);
-        if (op.type === "descent")
-            return interactDescent(targetId);
-        if (op.type === "triangulation")
-            return interactTriangulation(targetId);
-        if (op.type === "resonance")
-            return interactResonance(targetId);
-        if (op.type === "routePlan")
-            return interactRoutePlan(targetId);
-        if (op.type === "defense" || op.type === "pilot")
-            return interactOrderedTarget(targetId);
-        if (op.type === "align")
-            return interactAlign(targetId);
-        return { completed: false, accepted: false };
+        // Conserva las reglas de cada actividad nueva; solo las acciones aceptadas producen efectos.
+        let result = { completed: false, accepted: false };
+        if (op.type === "assembly") result = interactAssembly(targetId);
+        else if (op.type === "search") result = interactSearch(targetId);
+        else if (op.type === "descent") result = interactDescent(targetId);
+        else if (op.type === "triangulation") result = interactTriangulation(targetId);
+        else if (op.type === "resonance") result = interactResonance(targetId);
+        else if (op.type === "routePlan") result = interactRoutePlan(targetId);
+        else if (op.type === "defense" || op.type === "pilot") result = interactOrderedTarget(targetId);
+        else if (op.type === "align") result = interactAlign(targetId);
+        if (result.completed) haptic('mision_completa');
+        else if (result.accepted) haptic('interaccion');
+        return result;
     }
     async function applyScene(announce) {
         const requestId = ++sceneRequest;
@@ -694,6 +693,8 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
             return false;
         traveling = false;
         backgroundFallback = !!result?.fallback;
+        if (current().id === 'sun') haptic('calor_sol');
+        if (current().id === 'neptune') haptic('frio_neptuno');
         emit();
         if (announce) {
             const op = operation();
@@ -712,6 +713,7 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
         }
         if (index === currentIndex)
             return true;
+        haptic('apagar');
         currentIndex = index;
         visited.add(current().id);
         selectedTopic = MISSION_TOPIC_ORDER[0];
@@ -735,6 +737,7 @@ export function createMissionDirector({ onSceneChange, onMissionMessage }) {
         return travelTo(homeIndex);
     }
     async function restartMission() {
+        haptic('apagar');
         completed.clear();
         visited.clear();
         for (const key of Object.keys(taskStates))
