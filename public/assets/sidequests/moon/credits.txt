@@ -1,0 +1,35 @@
+RECURSOS DEL ESCENARIO LUNAR - IAstronautPlus
+
+1. Panorama lunar
+Titulo: Apollo 17 Moon Panorama
+Autor de las fotografias: NASA.
+Fecha de las fotografias: 1972.
+Descripcion: panorama de Apollo 17, Station 1 East, compuesto por 24
+fotografias (AS17-134-20408 a AS17-134-20431).
+Ficha y archivo original:
+https://commons.wikimedia.org/wiki/File:Apollo_17_Moon_Panorama.jpg
+Fuente indicada en la ficha: Lunar and Planetary Institute.
+Licencia: la ficha de Wikimedia Commons identifica el archivo como dominio
+publico en Estados Unidos por ser material creado por NASA (PD-USGov-NASA).
+Registrar aqui cualquier recorte, ajuste o adaptacion que se realice.
+
+2. Rocas lunares 3D
+Archivo local: models/moon_rocks.glb
+Titulo: Moon Rocks
+Autor: Ivan Vakulko.
+Fuente:
+https://sketchfab.com/3d-models/moon-rocks-691c9652bc744dd7b638e6a622ef8114
+Licencia indicada en la ficha: CC Attribution (Creative Commons Atribucion).
+Credito: "Moon Rocks", de Ivan Vakulko, via Sketchfab, bajo CC Attribution.
+Pendiente: confirmar la version exacta de la licencia en la descarga o en
+el enlace de licencia del modelo e incluir aqui su URL correspondiente.
+Registrar aqui cualquier modificacion del modelo o sus texturas.
+
+3. Textura del suelo
+Archivo local: textures/surface.png
+Origen: imagen generada con IA mediante ChatGPT a solicitud del responsable
+del proyecto, segun lo indicado por este.
+Descripcion: representacion artistica de suelo lunar; no es una fotografia
+cientifica ni material atribuido a NASA.
+No se asigna en este archivo una licencia Creative Commons a esta imagen.
+Registrar aqui cualquier ajuste posterior de color, repeticion o resolucion.
