@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prueba del suelo lunar</title>
+
+  <style>
+    body { margin: 0; overflow: hidden; background: black; }
+    canvas { display: block; }
+    #estado {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      color: white;
+      background: #000b;
+      padding: 12px;
+      font: 14px system-ui;
+      pointer-events: none;
+    }
+  </style>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="estado">Cargando suelo lunar…</div>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+    const estado = document.querySelector("#estado");
+    const escena = new THREE.Scene();
+    escena.background = new THREE.Color(0x000000);
+
+    const camara = new THREE.PerspectiveCamera(
+      60, innerWidth / innerHeight, 0.1, 200
+    );
+    camara.position.set(0, 1.7, 4);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    document.body.appendChild(renderer.domElement);
+
+    const controles = new OrbitControls(camara, renderer.domElement);
+    controles.target.set(0, 0, 0);
+    controles.enableDamping = true;
+    controles.maxPolarAngle = Math.PI / 2 - 0.05;
+    controles.minDistance = 1;
+    controles.maxDistance = 18;
+    controles.update();
+
+    escena.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+    const sol = new THREE.DirectionalLight(0xffffff, 2);
+    sol.position.set(5, 8, 3);
+    sol.castShadow = true;
+    sol.shadow.mapSize.set(1024, 1024);
+
+    // Cubrir el terreno donde están las rocas.
+    sol.shadow.camera.left = -15;
+    sol.shadow.camera.right = 15;
+    sol.shadow.camera.top = 15;
+    sol.shadow.camera.bottom = -15;
+    sol.shadow.camera.near = 0.5;
+    sol.shadow.camera.far = 40;
+
+    // Reducir marcas falsas sobre las superficies.
+    sol.shadow.normalBias = 0.02;
+    sol.shadow.camera.updateProjectionMatrix();
+    escena.add(sol);
+
+    const cargador = new THREE.TextureLoader();
+    cargador.load(
+        "./assets/sidequests/moon/textures/panorama-luna-adaptado.png",
+        (textura) => {
+            // Reducir el original para evitar una textura demasiado grande.
+            const ancho = Math.min(
+                textura.image.width,
+                4096,
+                renderer.capabilities.maxTextureSize
+            );
+            const alto = Math.round(
+            ancho * textura.image.height / textura.image.width
+            );
+
+            const lienzo = document.createElement("canvas");
+            lienzo.width = ancho;
+            lienzo.height = alto;
+            lienzo.getContext("2d").drawImage(
+            textura.image, 0, 0, ancho, alto
+            );
+
+            const fondo = new THREE.CanvasTexture(lienzo);
+            fondo.colorSpace = THREE.SRGBColorSpace;
+            textura.dispose();
+
+            const radio = 110;
+            const altura = 50;
+
+            const panorama = new THREE.Mesh(
+            new THREE.CylinderGeometry(
+                radio, radio, altura, 96, 1, true
+            ),
+            new THREE.MeshBasicMaterial({
+                map: fondo,
+                side: THREE.BackSide
+            })
+            );
+
+            // Valores iniciales: después ajustaremos el horizonte.
+            panorama.position.y = 14;
+            panorama.rotation.y = 0;
+            panorama.visible = false;
+            escena.add(panorama);
+        },
+        undefined,
+        (error) => {
+            console.error("No se pudo cargar el panorama lunar:", error);
+            estado.textContent = "Revisa la ruta del panorama lunar.";
+        }
+    );
+
+    cargador.load(
+      "./assets/sidequests/moon/textures/surface.png",
+      (textura) => {
+        textura.colorSpace = THREE.SRGBColorSpace;
+        textura.wrapS = THREE.RepeatWrapping;
+        textura.wrapT = THREE.RepeatWrapping;
+        textura.repeat.set(28, 28);
+        textura.anisotropy = Math.min(
+          8, renderer.capabilities.getMaxAnisotropy()
+        );
+        const geometriaSuelo = new THREE.PlaneGeometry(140, 140, 128, 128);
+
+        // Orientar la geometría horizontalmente antes de modificar su altura.
+        geometriaSuelo.rotateX(-Math.PI / 2);
+
+        const posiciones = geometriaSuelo.attributes.position;
+
+        for (let i = 0; i < posiciones.count; i++) {
+            const x = posiciones.getX(i);
+            const z = posiciones.getZ(i);
+            const distancia = Math.hypot(x, z);
+
+            // Zona central plana; transición gradual hacia las colinas.
+            // Mantener plana la zona central.
+            const transicion = THREE.MathUtils.smoothstep(distancia, 12, 30);
+
+            // Elevaciones amplias con pequeñas variaciones.
+            let altura =
+                1.5 +
+                Math.sin(x * 0.09 + z * 0.04) * 0.8 +
+                Math.cos(z * 0.12 - x * 0.03) * 0.6;
+
+            // Montañas distribuidas alrededor del área de exploración.
+            // [centro X, centro Z, altura, anchura]
+            const montañas = [
+                [-35, -38,  8, 10],
+                [ -8, -48,  4,  7],
+                [ 30, -40, 11, 12],
+                [ 48,  -5,  5,  8],
+                [ 35,  38,  9, 11],
+                [ -8,  48,  4,  9],
+                [-42,  30, 10, 12],
+                [-48,  -8,  5,  8]
+            ];
+
+            for (const [cx, cz, elevacion, anchura] of montañas) {
+                const distanciaCuadrada = (x - cx) ** 2 + (z - cz) ** 2;
+                altura += elevacion *
+                    Math.exp(-distanciaCuadrada / (2 * anchura ** 2));
+            }
+
+            posiciones.setY(i, altura * transicion);
+        }
+
+        posiciones.needsUpdate = true;
+        geometriaSuelo.computeVertexNormals();
+
+        const suelo = new THREE.Mesh(
+          geometriaSuelo,
+          new THREE.MeshStandardMaterial({
+            map: textura,
+            roughness: 1,
+            metalness: 0
+          })
+        );
+
+        suelo.receiveShadow = true;
+        escena.add(suelo);
+        const cargadorRocas = new GLTFLoader();
+
+        cargadorRocas.load(
+        "./assets/sidequests/moon/models/moon_rocks.glb",
+        (gltf) => {
+            const conjunto = gltf.scene;
+            conjunto.updateMatrixWorld(true);
+
+            // Recoger las rocas antes de cambiar su organización.
+            const piezas = [];
+            conjunto.traverse((objeto) => {
+            if (objeto.isMesh) piezas.push(objeto);
+            });
+
+            // Cada fila define una roca:
+            // [posición X, posición Z, tamaño máximo en metros, giro en grados]
+            const ubicaciones = [
+            [-4, -3, 1.0,  20],
+            [ 2, -5, 0.6,  75],
+            [-1, -2, 0.4, 130],
+            [ 5,  1, 0.8,  40],
+            [-6,  3, 1.2, 190],
+            [ 3, -1, 0.5,  95],
+            [-3,  5, 0.7, 250],
+            [ 6, -5, 0.4,  10],
+            [ 0, -6, 0.6, 160],
+            [-5, -6, 0.9, 310],
+            [ 4,  5, 0.5, 220],
+            [-2,  1, 0.3,  55],
+            [ 7,  3, 1.0, 110],
+            [-7, -1, 0.5, 280],
+            [ 1,  6, 0.4, 340]
+            ];
+
+            piezas.forEach((pieza, indice) => {
+                pieza.castShadow = true;
+                pieza.receiveShadow = true;
+            // Conservar la orientación del modelo y liberar cada roca del grupo.
+            escena.attach(pieza);
+
+            const soporte = new THREE.Group();
+            escena.add(soporte);
+            soporte.attach(pieza);
+
+            // Centrar la roca y colocar su base en el origen del soporte.
+            const caja = new THREE.Box3().setFromObject(pieza);
+            const centro = caja.getCenter(new THREE.Vector3());
+            const tamaño = caja.getSize(new THREE.Vector3());
+            const dimensionMayor = Math.max(tamaño.x, tamaño.y, tamaño.z);
+
+            if (dimensionMayor <= 0) return;
+
+            pieza.position.x -= centro.x;
+            pieza.position.y -= caja.min.y;
+            pieza.position.z -= centro.z;
+
+            const [x, z, medida, giro] = ubicaciones[indice];
+
+            soporte.scale.setScalar(medida / dimensionMayor);
+            soporte.rotation.y = THREE.MathUtils.degToRad(giro);
+            // Hundir cada roca un 12 % de su altura final.
+            const alturaFinal = tamaño.y * (medida / dimensionMayor);
+            soporte.position.set(x, -alturaFinal * 0.12, z);
+            });
+
+            estado.textContent =
+            "Rocas distribuidas. Arrastra para observar el terreno.";
+        },
+        undefined,
+        (error) => {
+            console.error("Error al cargar las rocas:", error);
+            estado.textContent =
+            "El suelo cargó, pero las rocas no. Revisa la ruta de moon_rocks.glb.";
+        }
+        );
+
+        estado.textContent =
+          "Arrastra para girar. Usa la rueda para acercarte. Busca uniones y patrones repetidos.";
+      },
+      undefined,
+      (error) => {
+        console.error(error);
+        estado.textContent =
+          "No se pudo cargar surface.png. Revisa la ruta y el nombre.";
+      }
+    );
+
+    addEventListener("resize", () => {
+      camara.aspect = innerWidth / innerHeight;
+      camara.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    renderer.setAnimationLoop(() => {
+      controles.update();
+      renderer.render(escena, camara);
+    });
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  </script>
+</body>
+</html>

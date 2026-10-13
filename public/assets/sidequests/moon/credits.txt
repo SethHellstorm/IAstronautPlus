@@ -33,3 +33,16 @@ Descripcion: representacion artistica de suelo lunar; no es una fotografia
 cientifica ni material atribuido a NASA.
 No se asigna en este archivo una licencia Creative Commons a esta imagen.
 Registrar aqui cualquier ajuste posterior de color, repeticion o resolucion.
+
+4. Panorama lunar adaptado para el escenario
+Archivo local: textures/panorama-luna-adaptado.png
+Base de referencia: Apollo 17 Moon Panorama, NASA (ver apartado 1).
+Adaptacion: realizada con IA mediante ChatGPT a solicitud del responsable
+ del proyecto, segun lo indicado por este.
+Se modificaron el paisaje y sus extremos buscando continuidad horizontal
+para utilizar la imagen como fondo cilindrico en el escenario 3D.
+Es una recreacion artistica basada en el panorama original, no una fotografia
+cientifica intacta ni una adaptacion realizada o avalada por NASA.
+La continuidad entre extremos queda sujeta a comprobacion visual.
+Se conserva el original en textures/Apollo_17_Moon_Panorama.jpg.
+No se asigna aqui una licencia Creative Commons a la version adaptada.
