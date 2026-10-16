@@ -20,6 +20,7 @@
     }
   </style>
 
+  <script>window.APP_BASE = new URL(".", location.href).pathname.replace(/\/$/, "");</script>
   <script type="importmap">
     {
       "imports": {
@@ -34,12 +35,22 @@
 
   <script type="module">
     import * as THREE from "three";
-    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
     import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+    import { VRButton } from "three/addons/webxr/VRButton.js";
+
+    import { drawMoonExit } from "./assets/js/iastronaut/moonHud.js";
+
+    import { createMoonInterface } from "./assets/js/iastronaut/moonInterface.js";
 
     const estado = document.querySelector("#estado");
     const escena = new THREE.Scene();
     escena.background = new THREE.Color(0x000000);
+
+    // Misma distancia cabeza-suelo que createFloor en las misiones principales.
+    const ALTURA_REFERENCIA = 1.48;
+    const mundoLunar = new THREE.Group();
+    escena.add(mundoLunar);
+    let pendienteCalibracion = false;
 
     const camara = new THREE.PerspectiveCamera(
       60, innerWidth / innerHeight, 0.1, 200
@@ -50,14 +61,288 @@
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     document.body.appendChild(renderer.domElement);
+    renderer.xr.enabled = true;
+    renderer.xr.setReferenceSpaceType("local-floor");
+    document.body.appendChild(VRButton.createButton(renderer));
 
-    const controles = new OrbitControls(camara, renderer.domElement);
-    controles.target.set(0, 0, 0);
-    controles.enableDamping = true;
-    controles.maxPolarAngle = Math.PI / 2 - 0.05;
-    controles.minDistance = 1;
-    controles.maxDistance = 18;
-    controles.update();
+    // Progreso exclusivo de esta prueba: no modifica las misiones principales.
+    const muestras = [];
+    const objetosSeleccion = [];
+    const recogidas = new Set();
+    let muestrasListas = false;
+    function recalibrarHUD() {
+      const vista = renderer.xr.isPresenting ? renderer.xr.getCamera(camara) : camara;
+      vista.updateWorldMatrix(true, false);
+      const origen = vista.getWorldPosition(new THREE.Vector3());
+      const frente = vista.getWorldDirection(new THREE.Vector3());
+      const giro = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0), Math.atan2(-frente.x,-frente.z));
+      panelMision.position.set(0,0,-3.2).applyQuaternion(giro).add(origen);
+      panelMision.quaternion.copy(giro);
+    }
+    const hud = createMoonInterface({ THREE, scene: escena, renderer,
+      getMission: () => ({ready:muestrasListas,collected:recogidas.size}), recenter:recalibrarHUD });
+    const panelMision = hud.group;
+    function mostrarMision(error = "") {
+      hud.refresh(error);
+    }
+    function recogerMuestra(muestra) {
+      if (!muestrasListas || !hud.canCollect() || !muestra || recogidas.has(muestra.id)) return;
+      recogidas.add(muestra.id);
+      muestra.soporte.visible = false;
+      muestra.aro.visible = false;
+      mostrarMision();
+    }
+    function muestraEnRayo(rayo) {
+      if (!muestrasListas || !hud.canCollect() || !mundoLunar.visible) return null;
+      mundoLunar.updateMatrixWorld(true);
+      const visibles = objetosSeleccion.filter(objeto =>
+        !objeto.userData.muestra || !recogidas.has(objeto.userData.muestra.id));
+      // El suelo y las rocas decorativas bloquean la seleccion a traves de ellos.
+      const impacto = rayo.intersectObjects(visibles, false)[0];
+      return impacto?.object.userData.muestra || null;
+    }
+    mostrarMision();
+
+    // Control inmersivo: visible en el visor, independiente del HTML.
+    const canvasSalida = document.createElement("canvas");
+    canvasSalida.width = 640;
+    canvasSalida.height = 256;
+    const contextoSalida = canvasSalida.getContext("2d");
+    const texturaSalida = new THREE.CanvasTexture(canvasSalida);
+    texturaSalida.colorSpace = THREE.SRGBColorSpace;
+    texturaSalida.minFilter = THREE.LinearFilter;
+    texturaSalida.generateMipmaps = false;
+    const botonSalida = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.64, 0.256),
+      new THREE.MeshBasicMaterial({
+        map: texturaSalida, transparent: true, depthTest: false, depthWrite: false,
+        toneMapped: false, side: THREE.DoubleSide
+      })
+    );
+    botonSalida.visible = false;
+    botonSalida.renderOrder = 100;
+    escena.add(botonSalida);
+    let saliendoVR = false;
+    let sobreSalida = false;
+    let errorSalida = false;
+    function dibujarSalida() {
+      drawMoonExit(contextoSalida, {
+        busy: saliendoVR, hovered: sobreSalida, error: errorSalida,
+        immersive: renderer.xr.isPresenting
+      });
+      texturaSalida.needsUpdate = true;
+    }
+    dibujarSalida();
+    async function salirDeVR() {
+      const sesion = renderer.xr.getSession();
+      if (!sesion || saliendoVR) return;
+      saliendoVR = true;
+      errorSalida = false;
+      dibujarSalida();
+      try {
+        await sesion.end();
+      } catch (error) {
+        console.error("No se pudo cerrar VR:", error);
+        if (renderer.xr.getSession() === sesion) {
+          saliendoVR = false;
+          errorSalida = true;
+          dibujarSalida();
+        }
+      }
+    }
+    const rayoSalida = new THREE.Raycaster();
+    rayoSalida.far = 6;
+    const rotacionMando = new THREE.Matrix4();
+    const mandosSalida = [];
+    function apuntaASalida(mando) {
+      if (!botonSalida.visible || !mando.visible || !mando.userData.conectado) return false;
+      mando.updateWorldMatrix(true, false);
+      botonSalida.updateWorldMatrix(true, false);
+      rotacionMando.extractRotation(mando.matrixWorld);
+      rayoSalida.ray.origin.setFromMatrixPosition(mando.matrixWorld);
+      rayoSalida.ray.direction.set(0, 0, -1).applyMatrix4(rotacionMando).normalize();
+      return rayoSalida.intersectObject(botonSalida, false).length > 0;
+    }
+    for (let indice = 0; indice < 2; indice++) {
+      const mando = renderer.xr.getController(indice);
+      const linea = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(), new THREE.Vector3(0, 0, -1)
+        ]),
+        new THREE.LineBasicMaterial({ color: 0x74deff, depthTest: false })
+      );
+      linea.scale.z = 3;
+      linea.renderOrder = 101;
+      linea.visible = false;
+      mando.add(linea);
+      mando.addEventListener("connected", () => { mando.userData.conectado = true; });
+      mando.addEventListener("disconnected", () => {
+        mando.userData.conectado = false;
+        linea.visible = false;
+      });
+      mando.addEventListener("selectstart", () => {
+        if (!renderer.xr.isPresenting || !botonSalida.visible ||
+            !mando.visible || !mando.userData.conectado || saliendoVR) return;
+        if (apuntaASalida(mando)) {
+          void salirDeVR();
+        } else if (!hud.click(rayoSalida)) {
+          recogerMuestra(muestraEnRayo(rayoSalida));
+        }
+      });
+      escena.add(mando);
+      mandosSalida.push({ mando, linea });
+    }
+    function actualizarSalida(frame) {
+      const referencia = renderer.xr.getReferenceSpace();
+      const pose = frame && referencia ? frame.getViewerPose(referencia) : null;
+      botonSalida.visible = !!pose;
+      panelMision.visible = !!pose;
+      if (!pose) {
+        for (const { linea } of mandosSalida) linea.visible = false;
+        return;
+      }
+      const resaltadas = new Set();
+      let apuntado = false;
+      for (const { mando, linea } of mandosSalida) {
+        linea.visible = !!mando.userData.conectado && mando.visible;
+        const acierto = apuntaASalida(mando);
+        const enPanel = linea.visible && !acierto && hud.setHover(rayoSalida);
+        const muestra = linea.visible && !acierto && !enPanel ? muestraEnRayo(rayoSalida) : null;
+        if (muestra) resaltadas.add(muestra.id);
+        linea.scale.z = 6;
+        linea.material.color.setHex(acierto || enPanel || muestra ? 0xffffff : 0x74deff);
+        apuntado = apuntado || acierto;
+      }
+      for (const muestra of muestras) {
+        muestra.aro.material.color.setHex(resaltadas.has(muestra.id) ? 0xffffff : 0x44dfff);
+      }
+      if (sobreSalida !== apuntado) {
+        sobreSalida = apuntado;
+        dibujarSalida();
+      }
+    }
+
+    // Mirada desde un punto fijo: arrastrar gira, nunca traslada la camara.
+    const controles = { enabled: true };
+    camara.position.set(0, 1.7, 4);
+    camara.lookAt(0, 1.2, -5);
+    const mirada = new THREE.Euler(0, 0, 0, "YXZ");
+    renderer.domElement.style.touchAction = "none";
+    // HUD fijo en el mundo tambien en escritorio; guardar su anclaje
+    // para restaurarlo al terminar una sesion inmersiva.
+    panelMision.position.set(0, 0, -3.2).applyQuaternion(camara.quaternion).add(camara.position);
+    botonSalida.position.set(1.45, -1.05, -3.2).applyQuaternion(camara.quaternion).add(camara.position);
+    panelMision.quaternion.copy(camara.quaternion);
+    botonSalida.quaternion.copy(camara.quaternion);
+    panelMision.visible = botonSalida.visible = true;
+    const hudEscritorio = [panelMision, botonSalida].map(mesh => ({
+      mesh, position: mesh.position.clone(), quaternion: mesh.quaternion.clone()
+    }));
+    estado.hidden = true;
+    let inicioClic = null;
+    const rayoRaton = new THREE.Raycaster();
+    renderer.domElement.addEventListener("pointerdown", evento => {
+      if (!controles.enabled || renderer.xr.isPresenting || evento.button !== 0 || inicioClic) return;
+      inicioClic = { x: evento.clientX, y: evento.clientY,
+        lastX: evento.clientX, lastY: evento.clientY, id: evento.pointerId, moved: false };
+      renderer.domElement.setPointerCapture(evento.pointerId);
+    });
+    renderer.domElement.addEventListener("pointermove", evento => {
+      if (!inicioClic || inicioClic.id !== evento.pointerId || !controles.enabled || renderer.xr.isPresenting) return;
+      const dx = evento.clientX - inicioClic.lastX;
+      const dy = evento.clientY - inicioClic.lastY;
+      inicioClic.lastX = evento.clientX;
+      inicioClic.lastY = evento.clientY;
+      if (Math.hypot(evento.clientX - inicioClic.x, evento.clientY - inicioClic.y) > 5) inicioClic.moved = true;
+      mirada.setFromQuaternion(camara.quaternion, "YXZ");
+      mirada.y -= dx * 0.003;
+      mirada.x = THREE.MathUtils.clamp(mirada.x - dy * 0.003, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
+      mirada.z = 0;
+      camara.quaternion.setFromEuler(mirada);
+    });
+    renderer.domElement.addEventListener("lostpointercapture", () => { inicioClic = null; });
+    renderer.domElement.addEventListener("pointercancel", () => { inicioClic = null; });
+    renderer.domElement.addEventListener("pointerup", evento => {
+      const inicio = inicioClic;
+      inicioClic = null;
+      if (renderer.domElement.hasPointerCapture(evento.pointerId)) renderer.domElement.releasePointerCapture(evento.pointerId);
+      if (!inicio || inicio.moved || inicio.id !== evento.pointerId || renderer.xr.isPresenting ||
+          Math.hypot(evento.clientX - inicio.x, evento.clientY - inicio.y) > 5) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      camara.updateMatrixWorld(true);
+      rayoRaton.setFromCamera(new THREE.Vector2(
+        (evento.clientX - rect.left) / rect.width * 2 - 1,
+        -(evento.clientY - rect.top) / rect.height * 2 + 1
+      ), camara);
+      botonSalida.updateWorldMatrix(true, false);
+      if (rayoRaton.intersectObject(botonSalida, false).length || hud.click(rayoRaton)) return;
+      recogerMuestra(muestraEnRayo(rayoRaton));
+    });
+    function rayoPantalla(evento) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      camara.updateMatrixWorld(true);
+      rayoRaton.setFromCamera(new THREE.Vector2((evento.clientX-rect.left)/rect.width*2-1,
+        -(evento.clientY-rect.top)/rect.height*2+1),camara);
+      return rayoRaton;
+    }
+    renderer.domElement.addEventListener("pointermove", evento => {
+      if (!renderer.xr.isPresenting && !inicioClic)
+        renderer.domElement.style.cursor = hud.setHover(rayoPantalla(evento)) ? "pointer" : "grab";
+    });
+    renderer.domElement.addEventListener("wheel", evento => {
+      if (!renderer.xr.isPresenting && hud.scroll(rayoPantalla(evento),evento.deltaY)) evento.preventDefault();
+    }, {passive:false});
+    const posicionEscritorio = new THREE.Vector3();
+    const orientacionEscritorio = new THREE.Quaternion();
+
+    renderer.xr.addEventListener("sessionstart", () => {
+      void hud.onXRStart();
+      saliendoVR = false;
+      sobreSalida = false;
+      errorSalida = false;
+      dibujarSalida();
+      posicionEscritorio.copy(camara.position);
+      orientacionEscritorio.copy(camara.quaternion);
+      inicioClic = null;
+
+      controles.enabled = false;
+      pendienteCalibracion = true;
+      mundoLunar.visible = false;
+
+      // En VR, el visor proporciona la altura real sobre el suelo.
+      camara.position.set(0, 0, 0);
+      camara.quaternion.identity();
+      camara.updateMatrixWorld(true);
+
+      estado.hidden = true;
+    });
+
+    renderer.xr.addEventListener("sessionend", () => {
+      hud.onXREnd();
+      for (const { mesh, position, quaternion } of hudEscritorio) {
+        mesh.position.copy(position);
+        mesh.quaternion.copy(quaternion);
+        mesh.visible = true;
+      }
+      saliendoVR = false;
+      sobreSalida = false;
+      errorSalida = false;
+      for (const { mando, linea } of mandosSalida) {
+        linea.visible = false;
+        mando.userData.conectado = false;
+      }
+      dibujarSalida();
+      pendienteCalibracion = false;
+      mundoLunar.position.set(0, 0, 0);
+      mundoLunar.rotation.set(0, 0, 0);
+      mundoLunar.visible = true;
+      camara.position.copy(posicionEscritorio);
+      camara.quaternion.copy(orientacionEscritorio);
+      controles.enabled = true;
+      camara.updateMatrixWorld(true);
+
+      estado.hidden = true;
+    });
 
     escena.add(new THREE.AmbientLight(0xffffff, 0.6));
 
@@ -77,59 +362,9 @@
     // Reducir marcas falsas sobre las superficies.
     sol.shadow.normalBias = 0.02;
     sol.shadow.camera.updateProjectionMatrix();
-    escena.add(sol);
+    mundoLunar.add(sol, sol.target);
 
     const cargador = new THREE.TextureLoader();
-    cargador.load(
-        "./assets/sidequests/moon/textures/panorama-luna-adaptado.png",
-        (textura) => {
-            // Reducir el original para evitar una textura demasiado grande.
-            const ancho = Math.min(
-                textura.image.width,
-                4096,
-                renderer.capabilities.maxTextureSize
-            );
-            const alto = Math.round(
-            ancho * textura.image.height / textura.image.width
-            );
-
-            const lienzo = document.createElement("canvas");
-            lienzo.width = ancho;
-            lienzo.height = alto;
-            lienzo.getContext("2d").drawImage(
-            textura.image, 0, 0, ancho, alto
-            );
-
-            const fondo = new THREE.CanvasTexture(lienzo);
-            fondo.colorSpace = THREE.SRGBColorSpace;
-            textura.dispose();
-
-            const radio = 110;
-            const altura = 50;
-
-            const panorama = new THREE.Mesh(
-            new THREE.CylinderGeometry(
-                radio, radio, altura, 96, 1, true
-            ),
-            new THREE.MeshBasicMaterial({
-                map: fondo,
-                side: THREE.BackSide
-            })
-            );
-
-            // Valores iniciales: después ajustaremos el horizonte.
-            panorama.position.y = 14;
-            panorama.rotation.y = 0;
-            panorama.visible = false;
-            escena.add(panorama);
-        },
-        undefined,
-        (error) => {
-            console.error("No se pudo cargar el panorama lunar:", error);
-            estado.textContent = "Revisa la ruta del panorama lunar.";
-        }
-    );
-
     cargador.load(
       "./assets/sidequests/moon/textures/surface.png",
       (textura) => {
@@ -140,12 +375,32 @@
         textura.anisotropy = Math.min(
           8, renderer.capabilities.getMaxAnisotropy()
         );
-        const geometriaSuelo = new THREE.PlaneGeometry(140, 140, 128, 128);
+        const geometriaSuelo = new THREE.PlaneGeometry(140, 140, 256, 256);
 
         // Orientar la geometría horizontalmente antes de modificar su altura.
         geometriaSuelo.rotateX(-Math.PI / 2);
 
         const posiciones = geometriaSuelo.attributes.position;
+        // [centro X, centro Z, radio, profundidad, altura del borde]
+        const crateres = [
+          [-19, -12, 6, 1.8, 0.6],
+          [ 20,  -8, 5, 1.4, 0.5],
+          [  5,  25, 7, 2.0, 0.7]
+        ];
+
+
+        // Montañas distribuidas alrededor del área de exploración.
+        // [centro X, centro Z, altura, anchura]
+        const montañas = [
+            [-35, -38,  8, 10],
+            [ -8, -48,  4,  7],
+            [ 30, -40, 11, 12],
+            [ 48,  -5,  5,  8],
+            [ 35,  38,  9, 11],
+            [ -8,  48,  4,  9],
+            [-42,  30, 10, 12],
+            [-48,  -8,  5,  8]
+        ];
 
         for (let i = 0; i < posiciones.count; i++) {
             const x = posiciones.getX(i);
@@ -162,26 +417,32 @@
                 Math.sin(x * 0.09 + z * 0.04) * 0.8 +
                 Math.cos(z * 0.12 - x * 0.03) * 0.6;
 
-            // Montañas distribuidas alrededor del área de exploración.
-            // [centro X, centro Z, altura, anchura]
-            const montañas = [
-                [-35, -38,  8, 10],
-                [ -8, -48,  4,  7],
-                [ 30, -40, 11, 12],
-                [ 48,  -5,  5,  8],
-                [ 35,  38,  9, 11],
-                [ -8,  48,  4,  9],
-                [-42,  30, 10, 12],
-                [-48,  -8,  5,  8]
-            ];
 
             for (const [cx, cz, elevacion, anchura] of montañas) {
                 const distanciaCuadrada = (x - cx) ** 2 + (z - cz) ** 2;
                 altura += elevacion *
                     Math.exp(-distanciaCuadrada / (2 * anchura ** 2));
             }
+            // Aplicar la transición a las montañas antes de excavar los cráteres.
+            altura *= transicion;
+            for (const [cx, cz, radio, profundidad, borde] of crateres) {
+              const distanciaCrater = Math.hypot(x - cx, z - cz);
+              const r = distanciaCrater / radio;
 
-            posiciones.setY(i, altura * transicion);
+              // Depresión suave: alcanza su profundidad máxima en el centro.
+              if (r < 1) {
+                altura -= profundidad * (1 - r * r) ** 2;
+              }
+
+              // Borde elevado alrededor del cráter, con transición suave.
+              const anchoBorde = 0.3;
+              const separacionBorde = Math.abs(r - 1) / anchoBorde;
+
+              if (separacionBorde < 1) {
+                altura += borde * (1 - separacionBorde ** 2) ** 2;
+              }
+            }
+            posiciones.setY(i, altura);
         }
 
         posiciones.needsUpdate = true;
@@ -197,7 +458,8 @@
         );
 
         suelo.receiveShadow = true;
-        escena.add(suelo);
+        mundoLunar.add(suelo);
+        objetosSeleccion.push(suelo);
         const cargadorRocas = new GLTFLoader();
 
         cargadorRocas.load(
@@ -215,9 +477,9 @@
             // Cada fila define una roca:
             // [posición X, posición Z, tamaño máximo en metros, giro en grados]
             const ubicaciones = [
-            [-4, -3, 1.0,  20],
-            [ 2, -5, 0.6,  75],
-            [-1, -2, 0.4, 130],
+            [-1.8, -2.6, 0.65, 20],
+            [ 0, -3.2, 0.55, 75],
+            [ 1.8, -2.6, 0.5, 130],
             [ 5,  1, 0.8,  40],
             [-6,  3, 1.2, 190],
             [ 3, -1, 0.5,  95],
@@ -261,27 +523,41 @@
             // Hundir cada roca un 12 % de su altura final.
             const alturaFinal = tamaño.y * (medida / dimensionMayor);
             soporte.position.set(x, -alturaFinal * 0.12, z);
+            // add conserva coordenadas locales, incluso si el GLB termina de
+            // cargar despues de calibrar el mundo en VR.
+            mundoLunar.add(soporte);
+            objetosSeleccion.push(pieza);
+            if (indice < 3) {
+              const aro = new THREE.Mesh(
+                new THREE.RingGeometry(medida * 0.65, medida * 0.65 + 0.05, 48),
+                new THREE.MeshBasicMaterial({ color: 0x44dfff, side: THREE.DoubleSide,
+                  toneMapped: false })
+              );
+              aro.rotation.x = -Math.PI / 2;
+              aro.position.set(x, 0.025, z);
+              mundoLunar.add(aro);
+              const muestra = { id: indice, soporte, aro };
+              pieza.userData.muestra = muestra;
+              muestras.push(muestra);
+            }
             });
 
-            estado.textContent =
-            "Rocas distribuidas. Arrastra para observar el terreno.";
+            muestrasListas = muestras.length === 3;
+            mostrarMision(muestrasListas ? "" : "No se pudieron preparar las tres muestras.");
         },
         undefined,
         (error) => {
             console.error("Error al cargar las rocas:", error);
-            estado.textContent =
-            "El suelo cargó, pero las rocas no. Revisa la ruta de moon_rocks.glb.";
+            mostrarMision("No se pudieron cargar las rocas. Recarga la pagina.");
         }
         );
 
-        estado.textContent =
-          "Arrastra para girar. Usa la rueda para acercarte. Busca uniones y patrones repetidos.";
+        mostrarMision();
       },
       undefined,
       (error) => {
         console.error(error);
-        estado.textContent =
-          "No se pudo cargar surface.png. Revisa la ruta y el nombre.";
+        mostrarMision("No se pudo cargar el suelo. Recarga la pagina.");
       }
     );
 
@@ -291,8 +567,41 @@
       renderer.setSize(innerWidth, innerHeight);
     });
 
-    renderer.setAnimationLoop(() => {
-      controles.update();
+    renderer.setAnimationLoop((tiempo, frame) => {
+      if (renderer.xr.isPresenting && pendienteCalibracion && frame) {
+        const referencia = renderer.xr.getReferenceSpace();
+        const pose = referencia ? frame.getViewerPose(referencia) : null;
+        if (pose) {
+          const cabeza = pose.transform.position;
+          mundoLunar.position.set(
+            cabeza.x, cabeza.y - ALTURA_REFERENCIA, cabeza.z
+          );
+          const orientacionInicial = new THREE.Quaternion().copy(pose.transform.orientation);
+          const frente = new THREE.Vector3(0, 0, -1).applyQuaternion(orientacionInicial);
+          mundoLunar.rotation.y = Math.hypot(frente.x, frente.z) > 0.001
+            ? Math.atan2(-frente.x, -frente.z) : 0;
+          // Anclar el HUD una sola vez, nivelado y frente al usuario.
+          // Comparte el rumbo inicial del terreno, sin seguir la cabeza.
+          const orientacionHUD = new THREE.Quaternion().setFromEuler(mundoLunar.rotation);
+          const origenHUD = new THREE.Vector3(cabeza.x, cabeza.y, cabeza.z);
+          botonSalida.position.set(1.45, -1.05, -3.2)
+            .applyQuaternion(orientacionHUD).add(origenHUD);
+          botonSalida.quaternion.copy(orientacionHUD);
+          panelMision.position.set(0, 0, -3.2)
+            .applyQuaternion(orientacionHUD).add(origenHUD);
+          panelMision.quaternion.copy(orientacionHUD);
+          mundoLunar.updateMatrixWorld(true);
+          mundoLunar.visible = true;
+          pendienteCalibracion = false;
+        }
+      }
+      if (renderer.xr.isPresenting) {
+        actualizarSalida(frame);
+      }
+      if (!renderer.xr.isPresenting) {
+        camara.updateMatrixWorld(true);
+      }
+
       renderer.render(escena, camara);
     });
     renderer.shadowMap.enabled = true;
