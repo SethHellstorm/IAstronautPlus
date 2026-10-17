@@ -2,7 +2,7 @@ import { SOLAR_MISSION, MISSION_TOPIC_ORDER } from "./missionData.js";
 import { MAIN_PANEL_WIDTH, MAIN_PANEL_HEIGHT, MAIN_PANEL_Y, PANEL_LAYOUT_GAP } from "./config.js";
 import { roundRect } from "./canvasUtils.js";
 import { drawShell, drawDot, drawWrapped, drawBar, drawButton, drawPrimaryButton, makePanel, pointInRect, circleContains } from "./panelCanvas.js";
-export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director, getWorldStatus, mainPanelMesh }) {
+export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director, getWorldStatus, mainPanelMesh, onMoon = null }) {
     const sidePanelWidth = 1.28;
     const statusHeight = 0.42;
     const solarMapHeight = 0.59;
@@ -179,6 +179,12 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         }
         else {
             drawButton(ctx, actionRect, "OPERACIÓN COMPLETA", true, "#59F49B", true, 31, false);
+        }
+        if (current.id === "earth" && onMoon) {
+            const unlocked = state.completed.has("earth");
+            const moonRect = {x: 32, y: 770, w: 696, h: 88};
+            drawButton(ctx, moonRect, unlocked ? "EXPLORAR LA LUNA" : "LUNA: COMPLETA LA TIERRA", true, "#78E8FF", !unlocked || state.traveling, 25, isHovered(controls, "moon", ""));
+            if (unlocked && !state.traveling) controls.hitZones.push({type:"moon",rect:moonRect});
         }
         const atNeptune = current.id === "neptune";
         if (atNeptune) {
@@ -524,6 +530,8 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
             await director.next();
         else if (zone.type === "destination")
             await director.travelTo(zone.index);
+        else if (zone.type === "moon")
+            await onMoon?.();
         else if (zone.type === "restart")
             await director.restartMission();
         else

@@ -14,6 +14,7 @@ function fileExtensionForMime(mime) {
 }
 
 export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuide, getMissionContext, onAssistantAction }) {
+    let sessionGeneration = 0;
     let micStream = null;
     let audioContext = null;
     let analyser = null;
@@ -150,6 +151,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuid
         return bubble;
     }
     async function sendAudioBlob(blob, mime) {
+        const generation = sessionGeneration;
         const placeholder = { kind: "text", text: "Procesando mensaje de voz…", who: "bot" };
         state.bubbles.push(placeholder);
         enforceMaxBubbles(state);
@@ -173,6 +175,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuid
             catch (_) { }
             const response = await fetchWithTimeout(ENDPOINT, { method: "POST", body: formData }, 75000);
             const data = await readJsonResponse(response);
+            if (generation !== sessionGeneration) return;
             const transcript = String(data.transcript || "").trim();
             const reply = String(data.reply || "No pude responder en este momento.").trim();
             const placeholderIndex = state.bubbles.indexOf(placeholder);
@@ -194,9 +197,10 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuid
             }
             requestInFlight = false;
             setAISpeaking(state, drawPanel, false);
-            await requestSpeechAudio(reply);
+            if (generation === sessionGeneration) await requestSpeechAudio(reply);
         }
         catch (error) {
+            if (generation !== sessionGeneration) return;
             console.error("sendAudioBlob failed:", error);
             const serverMessage = String(error?.message || "").trim();
             const message = error?.name === "AbortError"
@@ -205,6 +209,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuid
             replaceBubble(placeholder, message, "bot");
         }
         finally {
+            if (generation !== sessionGeneration) return;
             requestInFlight = false;
             setAISpeaking(state, drawPanel, false);
             if (armed) {
@@ -350,6 +355,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuid
         return permissionPrimePromise;
     }
     async function ensureMicArmed() {
+        const generation = sessionGeneration;
         if (!window.isSecureContext) {
             addBubble(state, drawPanel, "El micrófono requiere una conexión HTTPS segura.", "bot");
             return false;
@@ -360,9 +366,14 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuid
         }
         let track = micStream?.getAudioTracks?.()?.[0] || null;
         if (!track || track.readyState !== "live") {
-            micStream = await navigator.mediaDevices.getUserMedia({
+            const acquiredStream = await navigator.mediaDevices.getUserMedia({
                 audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
             });
+            if (generation !== sessionGeneration) {
+                acquiredStream.getTracks().forEach(track => track.stop());
+                return false;
+            }
+            micStream = acquiredStream;
             track = micStream.getAudioTracks?.()?.[0] || null;
             permissionPrimed = true;
         }
@@ -377,6 +388,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuid
             }
             catch (_) { }
         }
+        if (generation !== sessionGeneration) return false;
         try {
             sourceNode?.disconnect?.();
         }
@@ -424,12 +436,14 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuid
         }
     }
     async function toggleMic() {
+        const generation = sessionGeneration;
         if (requestInFlight || state.aiSpeaking)
             return;
         if (voiceGuide?.unlock)
             await voiceGuide.unlock();
         else
             await ttsPlayer?.unlock?.();
+        if (generation !== sessionGeneration) return;
         if (armed) {
             cleanupArmedMode();
             return;
@@ -475,6 +489,7 @@ export function createMicChatController({ state, drawPanel, ttsPlayer, voiceGuid
         toggleMic,
         isRecording: () => recording,
         stop: () => {
+            sessionGeneration++;
             requestInFlight = false;
             setAISpeaking(state, drawPanel, false);
             try {

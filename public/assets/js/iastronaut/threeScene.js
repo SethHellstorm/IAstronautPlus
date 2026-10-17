@@ -1,3 +1,4 @@
+import { isMoonUnlocked } from "./moonProgress.js";
 import { createMissionHaptics } from "./missionHaptics.js";
 import { APP_BASE, BG_IMAGE, MISSION_BG_DIR, MISSION_AUDIO_DIR, FLOATING_ASSETS, ASTRONAUT_SIDE_OFFSET, ASTRONAUT_SCALE_MULT, PANEL_DISTANCE_DEFAULT, PANEL_DISTANCE_XR_DEFAULT, HIT_ZONES, } from "./config.js";
 import { createUIState, createPanel, drawPanelFactory, addBubble, clearBubblesBySource } from "./uiPanel.js";
@@ -373,6 +374,56 @@ function createDesktopHelp(renderer) {
     }
     const vrExitControl = createVRExitControl();
     let missionWorld = null;
+    let moon = null;
+    let moonActive = false;
+    let moonOpening = false;
+    let mainSceneSnapshot = null;
+    async function openMoon() {
+        if (moonActive || moonOpening) return;
+        let state = director.getState();
+        if (state.current.id !== "earth" || state.traveling || !isMoonUnlocked(state)) return;
+        moonOpening = true;
+        try {
+            if (!moon) {
+                const { createMoonExperience } = await import("./moonExperience.js");
+                moon = createMoonExperience({ THREE, scene, camera, renderer, base: APP_BASE,
+                    onReturn: closeMoon, exitVR: exitImmersiveVR });
+            }
+            state = director.getState();
+            if (state.current.id !== "earth" || state.traveling || !isMoonUnlocked(state)) return;
+            dismissPendingWelcome();
+            mic.stop(); voiceGuide.stop();
+            sendHaptic({effect:"apagar",scene:"earth"});
+            const xrObjects = new Set([...Object.values(xr.controllers), ...Object.values(xr.hands), camera, moon.root]);
+            mainSceneSnapshot = {
+                background: scene.background, environment: scene.environment,
+                shadows: renderer.shadowMap.enabled, shadowType: renderer.shadowMap.type,
+                panelVisible: panelMesh.visible,
+                objects: scene.children.filter(object => !xrObjects.has(object)).map(object => ({object,visible:object.visible}))
+            };
+            for (const {object} of mainSceneSnapshot.objects) object.visible = false;
+            panelMesh.visible = false;
+            scene.background = new THREE.Color(0x000000); scene.environment = null;
+            renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            moonActive = true;
+            moon.enter();
+        } catch (error) {
+            console.error("No se pudo abrir la Luna:", error);
+            if (moonActive) closeMoon();
+            addBubble(uiState, drawPanel, "No se pudo abrir la Luna. Intenta de nuevo.", "bot");
+        } finally { moonOpening = false; }
+    }
+    function closeMoon() {
+        if (!moonActive) return;
+        moon.leave(); moonActive = false;
+        for (const {object,visible} of mainSceneSnapshot.objects) object.visible = visible;
+        scene.background = mainSceneSnapshot.background; scene.environment = mainSceneSnapshot.environment;
+        renderer.shadowMap.enabled = mainSceneSnapshot.shadows; renderer.shadowMap.type = mainSceneSnapshot.shadowType;
+        panelMesh.visible = mainSceneSnapshot.panelVisible;
+        mainSceneSnapshot = null;
+        recenterPanel();
+        syncVRExitVisibility();
+    }
     let narrationSequence = 0;
     const blockingNarrationKinds = new Set([
         "operation_start",
@@ -407,7 +458,7 @@ function createDesktopHelp(renderer) {
                 ? voiceGuide.playLocal(audioId, { interrupt: true, remember: true })
                 : Promise.resolve(false);
             Promise.resolve(speech).finally(() => {
-                if (sequence === narrationSequence)
+                if (sequence === narrationSequence && !moonActive)
                     missionWorld?.setNarrationLocked?.(false);
             });
         },
@@ -419,10 +470,11 @@ function createDesktopHelp(renderer) {
         director,
         getWorldStatus: () => missionWorld?.getStatus?.() || {},
         mainPanelMesh: panelMesh,
+        onMoon: openMoon,
     });
     missionWorld = createMissionWorld({ THREE, scene, camera, renderer, director });
     function syncVRExitVisibility() {
-        vrExitControl.setVisible(renderer.xr.isPresenting && panelMesh.visible);
+        vrExitControl.setVisible(!moonActive && renderer.xr.isPresenting && panelMesh.visible);
     }
     director.subscribe((nextState) => syncVRExitVisibility(nextState));
     if (!window.__iastronautWelcomeBubbleShown) {
@@ -430,6 +482,7 @@ function createDesktopHelp(renderer) {
         window.__iastronautWelcomeBubbleShown = true;
     }
     function centerPanelDesktopLikeReload() {
+        if (moonActive) { moon.recenter(); return; }
         applyPanelScale();
         const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         forward.y = 0;
@@ -443,6 +496,7 @@ function createDesktopHelp(renderer) {
         missionWorld?.recenter?.();
     }
     function recenterPanel() {
+        if (moonActive) { moon.recenter(); return; }
         if (!renderer.xr.isPresenting) {
             centerPanelDesktopLikeReload();
             return;
@@ -501,6 +555,7 @@ function createDesktopHelp(renderer) {
         }
     }
     async function handleActionFromHit(hit) {
+        if (moonActive) return;
         const point = canvasPoint(hit);
         if (!point)
             return;
@@ -518,6 +573,7 @@ function createDesktopHelp(renderer) {
         voiceGuide,
         getMissionContext: director.getContext,
         onAssistantAction: async (action) => {
+            if (moonActive) return false;
             if (action?.type === "highlight_target")
                 return missionWorld.suggestTarget();
             return director.runAction(action);
@@ -556,6 +612,7 @@ function createDesktopHelp(renderer) {
         return !!missionWorld.findTarget(hit);
     }
     function handleInteractivePressStart(hit, source) {
+        if (moonActive) return false;
         if (isVRExitHit(hit))
             return false;
         if (isMissionWorldHit(hit))
@@ -563,10 +620,12 @@ function createDesktopHelp(renderer) {
         return false;
     }
     function handleInteractivePressEnd(hit) {
+        if (moonActive) return;
         if (isMissionWorldHit(hit))
             missionWorld.endPress();
     }
     async function handleInteractiveClick(hit) {
+        if (moonActive) return moon.handleHit(hit);
         if (isVRExitHit(hit)) {
             if (renderer.xr.isPresenting)
                 await exitImmersiveVR();
@@ -579,6 +638,7 @@ function createDesktopHelp(renderer) {
         return false;
     }
     function handleInteractiveHover(hit) {
+        if (moonActive) { moon.hoverHit(hit); return; }
         const exitHover = isVRExitHit(hit);
         vrExitControl.setHovered(exitHover);
         if (exitHover) {
@@ -590,6 +650,7 @@ function createDesktopHelp(renderer) {
         missionWorld.setHoverHit(hit);
     }
     function getInteractiveMeshes() {
+        if (moonActive) return moon.getInteractiveMeshes();
         return [...missionPanels.getInteractiveMeshes(), ...missionWorld.getInteractiveMeshes(), vrExitControl.mesh];
     }
     setupDesktopMobileInput({
@@ -620,6 +681,7 @@ function createDesktopHelp(renderer) {
         syncVRExitVisibility();
         document.getElementById("vrDesktopHelp")?.remove();
         applyPanelScale();
+        if (moonActive) { moon.onXRStart(); return; }
         activateVoiceGuide();
         setTimeout(recenterPanel, 160);
         try {
@@ -632,10 +694,20 @@ function createDesktopHelp(renderer) {
         vrExitControl.setVisible(false);
         vrExitControl.setBusy(false);
         applyPanelScale();
-        centerPanelDesktopLikeReload();
+        if (moonActive) moon.onXREnd();
+        else centerPanelDesktopLikeReload();
         createDesktopHelp(renderer);
     });
     createDesktopHelp(renderer);
+    const moonMouseRay = new THREE.Raycaster();
+    renderer.domElement.addEventListener("wheel", event => {
+        if (!moonActive || renderer.xr.isPresenting) return;
+        const rect = renderer.domElement.getBoundingClientRect();
+        moonMouseRay.setFromCamera(new THREE.Vector2((event.clientX-rect.left)/rect.width*2-1,
+            -(event.clientY-rect.top)/rect.height*2+1), camera);
+        moon.scroll(moonMouseRay, event.deltaY);
+        event.preventDefault(); event.stopImmediatePropagation();
+    }, {capture:true,passive:false});
     const xr = setupXRInput({
         THREE,
         renderer,
@@ -712,9 +784,15 @@ function createDesktopHelp(renderer) {
     }
     window.addEventListener("resize", onResize);
     const clock = new THREE.Clock();
-    renderer.setAnimationLoop(() => {
+    renderer.setAnimationLoop((time, frame) => {
         const delta = Math.min(0.05, clock.getDelta());
         const t = clock.elapsedTime;
+        if (moonActive) {
+            moon.update(frame);
+            xr.tickXR?.();
+            renderer.render(scene, camera);
+            return;
+        }
         updateFade(delta);
         travelEffect.update(delta);
         director.update(delta);

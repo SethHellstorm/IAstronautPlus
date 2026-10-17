@@ -4,7 +4,7 @@ import { HIT_ZONES } from './config.js';
 import { createTTSPlayer, createVoiceGuide } from './voice.js';
 import { createMicChatController } from './chat.js';
 
-export function createMoonInterface({ THREE, scene, renderer, getMission, recenter }) {
+export function createMoonInterface({ THREE, scene, renderer, getMission, recenter, onReturn = null, onStart = null }) {
     const terminal = createPanel({ THREE, scene });
     const group = terminal.uiGroup;
     group.scale.setScalar(0.75);
@@ -27,7 +27,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     const status = panel('moon-status',1180,230,2.12,0.42,0,-1.35);
     const resume = panel('moon-resume',680,180,1.06,0.28,0,-0.8);
     const panels = [dossier,controls,route,status,resume];
-    let started = false, focus = false, tab = 'OBJETIVO', lastCollected = 0, lastError = '';
+    let started = !!getMission().started, focus = false, tab = 'OBJETIVO', lastCollected = getMission().collected, lastError = '';
     let hover = '';
     const logs = ['Expedicion lunar preparada.'];
     const tts = createTTSPlayer();
@@ -47,7 +47,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     };
     function start() {
         if (!getMission().ready || getMission().error) return;
-        if (!started) { started = true; logs.push('Recoleccion iniciada.'); say('Recoge las tres rocas con aro azul. Puedes volver a los paneles para hablar conmigo.'); }
+        if (!started) { started = true; onStart?.(); logs.push('Recoleccion iniciada.'); say('Recoge las tres rocas con aro azul. Puedes volver a los paneles para hablar conmigo.'); }
         focus = true; refresh();
     }
     const mic = createMicChatController({state,drawPanel:drawTerminal,ttsPlayer:tts,voiceGuide:guide,
@@ -95,7 +95,8 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         drawBar(controls.ctx,34,470,692,m.collected/3*100,accent,'PROGRESO DE OPERACION');
         button(controls,'start',complete?'EXPLORAR LUNA':started?'RETOMAR OPERACION':'INICIAR OPERACION',540,true,!m.ready || !!lastError);
         button(controls,'repeat','REPETIR INSTRUCCION',660);
-        text(controls,'Mision opcional / progreso independiente',790,23);
+        if (onReturn) button(controls,'return','VOLVER A LA TIERRA',778);
+        else text(controls,'Mision opcional / progreso independiente',790,23);
         route.ctx.strokeStyle='#286178'; route.ctx.lineWidth=5;
         route.ctx.beginPath();route.ctx.moveTo(260,155);route.ctx.lineTo(1140,155);route.ctx.stroke();
         drawDot(route.ctx,260,155,'#52BEFF',20);drawDot(route.ctx,1140,155,accent,26);
@@ -120,10 +121,11 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         const p=panels.find(p=>p.mesh===h.object);
         return p?.hitZones.find(z=>pointInRect({x:h.uv.x*p.canvas.width,y:(1-h.uv.y)*p.canvas.height},z.rect))?.key || '';
     }
-    function click(ray) {
-        const h=hit(ray);if(!h)return false;
+    function clickHit(h) {
+        if(!h || !meshes.includes(h.object)) return false;
         const key=keyFor(h);
-        if(key==='talk') void mic.toggleMic();
+        if(key==='return') {mic.stop();guide.stop();onReturn?.();}
+        else if(key==='talk') void mic.toggleMic();
         else if(key==='recenter') recenter();
         else if(key==='exit' || key==='grab') {mic.stop();focus=true;refresh();}
         else if(key==='panels') {focus=false;refresh();}
@@ -132,8 +134,8 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         else if(['OBJETIVO','CIENCIA','BITACORA'].includes(key)) {tab=key;refresh();}
         return true;
     }
-    function setHover(ray) {
-        const h=hit(ray), key=keyFor(h);
+    function hoverHit(h) {
+        const key=keyFor(h);
         if(key!==hover) {hover=key;state.hoverZone=key;drawTerminal();refresh();}
         return !!h;
     }
@@ -141,6 +143,8 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     say('Bienvenido a la Luna. Revisa el objetivo, la ciencia y la bitacora. Pulsa Iniciar operacion para recoger tres muestras. Puedes hablar conmigo mediante el microfono.');
     refresh();
     window.addEventListener('pagehide',()=>{mic.stop();guide.stop();});
-    return {group,refresh,click,setHover,scroll,canCollect:()=>started,
+    return {group,refresh,click:ray=>clickHit(hit(ray)),setHover:ray=>hoverHit(hit(ray)),scroll,
+        clickHit,hoverHit,getInteractiveMeshes:()=>meshes.filter(m=>m.visible && group.visible),
+        stop:()=>{mic.stop();guide.stop();},canCollect:()=>started,
         onXRStart:()=>mic.onXRSessionStart(),onXREnd:()=>mic.stop()};
 }
