@@ -456,7 +456,7 @@ function createDesktopHelp(renderer) {
                 console.warn("No existe un MP3 asociado a la narración de misión:", canonicalText);
             const speech = audioId
                 ? voiceGuide.playLocal(audioId, { interrupt: true, remember: true })
-                : Promise.resolve(false);
+                : voiceGuide.speak(canonicalText, { interrupt: true, remember: true });
             Promise.resolve(speech).finally(() => {
                 if (sequence === narrationSequence && !moonActive)
                     missionWorld?.setNarrationLocked?.(false);

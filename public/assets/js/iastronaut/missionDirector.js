@@ -401,12 +401,16 @@ export function createMissionDirector({ onSceneChange, onMissionMessage, onHapti
         const route = next ? ` La ruta hacia ${next.name} quedó desbloqueada.` : " Has restaurado toda la red Helios y completado la misión principal.";
         const baseVoice = op.voice?.complete || op.success;
         const factVoice = op.voice?.fact || stage.discovery || "";
+        const moonUnlock = stage.id === "earth"
+            ? "Tambi\u00e9n has desbloqueado la Luna como misi\u00f3n opcional. Selecciona la Luna en la segunda fila de la ruta hologr\u00e1fica. No afecta al progreso principal."
+            : "";
         const voice = [
             baseVoice,
             factVoice,
-            next ? `He resaltado ${spokenDestination(next)} en el mapa.` : ""
+            next ? `He resaltado ${spokenDestination(next)} en el mapa.` : "",
+            moonUnlock
         ].filter(Boolean).join(" ");
-        notify(`${op.success} ${stage.discovery}${route}`, voice, "operation_complete");
+        notify(`${op.success} ${stage.discovery}${route} ${moonUnlock}`.trim(), voice, "operation_complete");
         return { completed: true, targetId: null, message: op.success };
     }
     function interactOrderedTarget(targetId) {

@@ -5,14 +5,14 @@ import { drawShell, drawDot, drawWrapped, drawBar, drawButton, drawPrimaryButton
 export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director, getWorldStatus, mainPanelMesh, onMoon = null }) {
     const sidePanelWidth = 1.28;
     const statusHeight = 0.42;
-    const solarMapHeight = 0.59;
+    const solarMapHeight = 0.92;
     const sideX = MAIN_PANEL_WIDTH / 2 + PANEL_LAYOUT_GAP + sidePanelWidth / 2;
     const statusY = MAIN_PANEL_Y - MAIN_PANEL_HEIGHT / 2 - PANEL_LAYOUT_GAP - statusHeight / 2;
     const solarMapY = MAIN_PANEL_Y + MAIN_PANEL_HEIGHT / 2 + PANEL_LAYOUT_GAP + solarMapHeight / 2;
     const status = makePanel({ THREE, uiGroup, id: "status", canvasW: 1180, canvasH: 230, width: 2.12, height: statusHeight, x: 0, y: statusY, z: 0.02 });
     const controls = makePanel({ THREE, uiGroup, id: "controls", canvasW: 760, canvasH: 900, width: sidePanelWidth, height: 1.52, x: sideX, y: MAIN_PANEL_Y, z: 0.015, rotationY: -0.08 });
     const dossier = makePanel({ THREE, uiGroup, id: "dossier", canvasW: 760, canvasH: 760, width: sidePanelWidth, height: 1.28, x: -sideX, y: MAIN_PANEL_Y, z: 0.018, rotationY: 0.08 });
-    const solarMap = makePanel({ THREE, uiGroup, id: "solarMap", canvasW: 1400, canvasH: 320, width: 2.58, height: solarMapHeight, x: 0, y: solarMapY, z: 0.012 });
+    const solarMap = makePanel({ THREE, uiGroup, id: "solarMap", canvasW: 1400, canvasH: 500, width: 2.58, height: solarMapHeight, x: 0, y: solarMapY, z: 0.012 });
     const focusReturn = makePanel({ THREE, uiGroup, id: "focusReturn", canvasW: 680, canvasH: 180, width: 1.06, height: 0.28, x: -2.22, y: -1.42, z: 0.072, rotationY: 0.07 });
     focusReturn.mesh.material.depthTest = false;
     focusReturn.mesh.material.depthWrite = false;
@@ -162,7 +162,9 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         ctx.fillStyle = "#EDF9FF";
         ctx.font = "750 27px system-ui, -apple-system, Segoe UI, Roboto, Arial";
         const instruction = state.task.completed
-            ? "Registro recuperado. Selecciona el siguiente destino desbloqueado en la ruta holográfica."
+            ? current.id === "earth"
+                ? "Sol y Luna desbloqueados. Sigue la ruta principal o explora la Luna como misi\u00f3n opcional."
+                : "Registro recuperado. Selecciona el siguiente destino desbloqueado en la ruta holográfica."
             : state.task.started
                 ? "Retoma la exploración para continuar con el objetivo actual."
                 : state.guidanceText || "Inicia la operación y sigue las instrucciones de IAstronaut.";
@@ -180,12 +182,6 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         else {
             drawButton(ctx, actionRect, "OPERACIÓN COMPLETA", true, "#59F49B", true, 31, false);
         }
-        if (current.id === "earth" && onMoon) {
-            const unlocked = state.completed.has("earth");
-            const moonRect = {x: 32, y: 770, w: 696, h: 88};
-            drawButton(ctx, moonRect, unlocked ? "EXPLORAR LA LUNA" : "LUNA: COMPLETA LA TIERRA", true, "#78E8FF", !unlocked || state.traveling, 25, isHovered(controls, "moon", ""));
-            if (unlocked && !state.traveling) controls.hitZones.push({type:"moon",rect:moonRect});
-        }
         const atNeptune = current.id === "neptune";
         if (atNeptune) {
             const restartRect = { x: 88, y: 654, w: 584, h: 78 };
@@ -195,7 +191,7 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         ctx.fillStyle = "#93CADB";
         ctx.font = "800 23px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
         ctx.textAlign = "center";
-        ctx.fillText(state.task.completed ? "CONTINÚA DESDE LA RUTA HOLOGRÁFICA" : "VIAJE Y PROGRESO EN LA RUTA HOLOGRÁFICA", canvas.width / 2, atNeptune ? 785 : 704);
+        ctx.fillText(current.id === "earth" && state.completed.has("earth") ? "LUNA DESBLOQUEADA \u00b7 MISI\u00d3N OPCIONAL" : state.task.completed ? "CONTINÚA DESDE LA RUTA HOLOGRÁFICA" : "VIAJE Y PROGRESO EN LA RUTA HOLOGRÁFICA", canvas.width / 2, atNeptune ? 785 : 704);
         ctx.textAlign = "left";
         texture.needsUpdate = true;
     }
@@ -451,6 +447,39 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
             ctx.fillText(item.name.toUpperCase(), x, y + 52);
             solarMap.hitZones.push({ type: "destination", index: i, circle: { x, y, r: next ? 56 : 45 } });
         }
+        const sidequests = [
+            ["LUNA", "", true], ["CORONA", "SOLAR", false],
+            ["PLUT\u00d3N", "", false], ["ESTACI\u00d3N", "ESPACIAL", false],
+            ["CINTUR\u00d3N", "PRINCIPAL", false], ["EUROPA", "", false],
+            ["TIT\u00c1N", "", false], ["COMETA", "", false],
+            ["CINTUR\u00d3N", "DE KUIPER", false]
+        ];
+        sidequests.forEach(([label, secondLine, ready], i) => {
+            const x = startX + gap * i;
+            const unlocked = state.completed.has(SOLAR_MISSION[i].id);
+            const enabled = ready && unlocked && !!onMoon && !state.traveling;
+            const hovered = enabled && isHovered(solarMap, "moon", "");
+            ctx.strokeStyle = unlocked ? "#78E8FF" : "#405865";
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(x, y + 65); ctx.lineTo(x, 320); ctx.stroke();
+            ctx.fillStyle = enabled ? "#78E8FF" : "#405865";
+            ctx.beginPath(); ctx.arc(x, 345, 23, 0, Math.PI * 2); ctx.fill();
+            if (hovered) {
+                ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.arc(x, 345, 30, 0, Math.PI * 2); ctx.stroke();
+            }
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillStyle = enabled ? "#E8FAFF" : "#93A8B2";
+            ctx.font = "800 20px ui-monospace, monospace";
+            ctx.fillText(label, x, 380);
+            if (secondLine) ctx.fillText(secondLine, x, 404);
+            ctx.font = "700 15px ui-monospace, monospace";
+            ctx.fillStyle = enabled ? "#65F2A0" : "#93A8B2";
+            ctx.fillText(!ready ? "PR\u00d3XIMAMENTE" : unlocked ? "DISPONIBLE" : "BLOQUEADA", x, 441);
+            if (enabled) solarMap.hitZones.push({type: "moon", rect: {x: x - 62, y: 315, w: 124, h: 150}});
+        });
         ctx.textAlign = "left";
         texture.needsUpdate = true;
     }
@@ -530,8 +559,11 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
             await director.next();
         else if (zone.type === "destination")
             await director.travelTo(zone.index);
-        else if (zone.type === "moon")
+        else if (zone.type === "moon") {
+            if (!state.completed.has("earth") || state.traveling) return false;
+            if (state.current.id !== "earth") await director.travelTo(0);
             await onMoon?.();
+        }
         else if (zone.type === "restart")
             await director.restartMission();
         else
