@@ -1,31 +1,28 @@
+import { drawSolarRoute } from "./solarRoute.js";
+import { SOLAR_MISSION } from "./missionData.js";
 import { createPanel, createUIState, drawPanelFactory, addBubble } from './uiPanel.js';
 import { makePanel, drawShell, drawWrapped, drawBar, drawButton, drawPrimaryButton, drawDot, pointInRect } from './panelCanvas.js';
-import { HIT_ZONES } from './config.js';
+import { HIT_ZONES, MAIN_PANEL_Y, MAIN_PANEL_HEIGHT, MAIN_PANEL_WIDTH, PANEL_LAYOUT_GAP } from './config.js';
 import { createTTSPlayer, createVoiceGuide } from './voice.js';
 import { createMicChatController } from './chat.js';
 
-export function createMoonInterface({ THREE, scene, renderer, getMission, recenter, onReturn = null, onStart = null }) {
+export function createMoonInterface({ THREE, scene, renderer, getMission, recenter, onReturn = null, onStart = null, navigation = null }) {
     const terminal = createPanel({ THREE, scene });
     const group = terminal.uiGroup;
-    group.scale.setScalar(0.75);
+    group.scale.setScalar(1);
     const state = createUIState();
     const originalDraw = drawPanelFactory({ THREE, ...terminal, state });
-    const drawTerminal = () => {
-        originalDraw();
-        // Sustituye mover por explorar: el conjunto permanece anclado.
-        const c = terminal.ctx;
-        c.fillStyle = '#0B2138';
-        c.fillRect(1230, 32, 140, 106);
-        drawButton(c, HIT_ZONES.grab, 'VER LUNA', true, '#3FDCFF', false, 16);
-        terminal.panelTex.needsUpdate = true;
-    };
+    const drawTerminal = originalDraw;
     const panel = (id,w,h,width,height,x,y) => makePanel({ THREE, uiGroup: group,
         id, canvasW:w, canvasH:h, width,height,x,y,z:0.02 });
-    const dossier = panel('moon-dossier',760,760,1.28,1.28,-1.91,-0.08);
-    const controls = panel('moon-controls',760,900,1.28,1.52,1.91,-0.08);
-    const route = panel('moon-route',1400,320,2.58,0.59,0,1.275);
-    const status = panel('moon-status',1180,230,2.12,0.42,0,-1.35);
-    const resume = panel('moon-resume',680,180,1.06,0.28,0,-0.8);
+    const sideX = MAIN_PANEL_WIDTH / 2 + PANEL_LAYOUT_GAP + 1.28 / 2;
+    const dossier = panel('moon-dossier',760,760,1.28,1.28,-sideX,MAIN_PANEL_Y);
+    const controls = panel('moon-controls',760,900,1.28,1.52,sideX,MAIN_PANEL_Y);
+    dossier.mesh.rotation.y = 0.08;
+    controls.mesh.rotation.y = -0.08;
+    const route = panel('moon-route',1400,500,2.58,0.92,0,MAIN_PANEL_Y + MAIN_PANEL_HEIGHT/2 + PANEL_LAYOUT_GAP + 0.92/2);
+    const status = panel('moon-status',1180,230,2.12,0.42,0,MAIN_PANEL_Y - MAIN_PANEL_HEIGHT/2 - PANEL_LAYOUT_GAP - 0.42/2);
+    const resume = panel('moon-resume',680,180,1.06,0.28,-2.22,-0.8);
     const panels = [dossier,controls,route,status,resume];
     let started = !!getMission().started, focus = false, tab = 'OBJETIVO', lastCollected = getMission().collected, lastError = '';
     let hover = '';
@@ -85,26 +82,50 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
             drawButton(dossier.ctx,rect,label,tab===label,accent,false,22,hover===label);
             dossier.hitZones.push({key:label,rect});
         });
-        text(dossier,'LUNA / RECOLECCION DE MUESTRAS',192,32,accent);
-        text(dossier,tab==='OBJETIVO'?'Recoge tres muestras seleccionando las rocas con aro azul. Esta actividad no altera el progreso principal.':
-            tab==='CIENCIA'?'El regolito es la capa de polvo y fragmentos que cubre el suelo lunar. Las muestras de roca permiten estudiar la historia de la Luna.':logs.join('\n'),280,28,'#E8FAFF',9);
-        drawBar(dossier.ctx,34,665,692,m.collected/3*100,accent,'PROGRESO LUNAR');
-        text(controls,'LUNA',100,46,accent);
-        text(controls,'RECOLECCION DE MUESTRAS',165,26);
-        text(controls,lastError || (!m.ready?'Cargando las muestras...':complete?'Mision completada. Puedes seguir explorando.':started?'Continua buscando los aros azules.':'IAstronaut te acompana. Inicia la operacion cuando estes listo.'),240,29,'#E8FAFF',4);
-        drawBar(controls.ctx,34,470,692,m.collected/3*100,accent,'PROGRESO DE OPERACION');
-        button(controls,'start',complete?'EXPLORAR LUNA':started?'RETOMAR OPERACION':'INICIAR OPERACION',540,true,!m.ready || !!lastError);
-        button(controls,'repeat','REPETIR INSTRUCCION',660);
+        function card(p, label, body, y, height, lines=3) {
+            const c=p.ctx;
+            c.fillStyle='#082740'; c.strokeStyle=accent; c.lineWidth=3;
+            c.beginPath(); c.roundRect(28,y,704,height,18); c.fill(); c.stroke();
+            c.fillStyle=accent; c.font='900 22px ui-monospace, monospace';
+            c.textAlign='left'; c.textBaseline='top'; c.fillText(label,52,y+25);
+            c.fillStyle='#EDF9FF'; c.font='750 27px system-ui, sans-serif';
+            drawWrapped(c,body,52,y+74,654,33,lines);
+        }
+        text(dossier,'MISI\u00d3N SECUNDARIA \u00b7 LUNA',180,23,accent,1);
+        text(dossier,'RECOLECCI\u00d3N DE MUESTRAS',225,32,'#FFFFFF',2);
+        if(tab==='OBJETIVO') {
+            card(dossier,'OBJETIVO ACTUAL','Recoge tres muestras seleccionando las rocas con aro azul.',320,174);
+            drawBar(dossier.ctx,36,548,688,m.collected/3*100,accent,'PROGRESO DE OPERACI\u00d3N');
+            text(dossier,complete?'MUESTRAS RECUPERADAS':started?'OPERACI\u00d3N EN CURSO':'LISTA PARA INICIAR',610,23,accent,1);
+            text(dossier,'Misi\u00f3n opcional. El progreso principal no cambia.',650,25,'#E8FAFF',2);
+        } else {
+            card(dossier,tab==='CIENCIA'?'CIENCIA LUNAR':'BIT\u00c1CORA',tab==='CIENCIA'
+                ?'El regolito es la capa de polvo y fragmentos que cubre el suelo lunar. Las muestras permiten estudiar la historia de la Luna.'
+                :logs.join(' '),320,370,8);
+        }
+        text(controls,'LUNA',96,45,accent,1);
+        text(controls,'RECOLECCI\u00d3N DE MUESTRAS',148,23,'#BDEBF7',1);
+        card(controls,complete?'OPERACI\u00d3N COMPLETA':started?'OPERACI\u00d3N EN PAUSA':'SIGUIENTE PASO',
+            lastError || (!m.ready?'Cargando las muestras...':complete?'Las tres muestras est\u00e1n recuperadas. Puedes volver a la Tierra.':started?'Retoma la exploraci\u00f3n para buscar los aros azules.':'IAstronaut te guiar\u00e1 paso a paso durante la misi\u00f3n.'),196,174);
+        drawBar(controls.ctx,36,424,688,m.collected/3*100,accent,'PROGRESO DE OPERACI\u00d3N');
+        button(controls,'start',complete?'EXPLORAR LUNA':started?'RETOMAR OPERACI\u00d3N':'INICIAR OPERACI\u00d3N',510,true,!m.ready || !!lastError);
+        button(controls,'repeat','REPETIR INSTRUCCI\u00d3N',660);
         if (onReturn) button(controls,'return','VOLVER A LA TIERRA',778);
-        else text(controls,'Mision opcional / progreso independiente',790,23);
-        route.ctx.strokeStyle='#286178'; route.ctx.lineWidth=5;
-        route.ctx.beginPath();route.ctx.moveTo(260,155);route.ctx.lineTo(1140,155);route.ctx.stroke();
-        drawDot(route.ctx,260,155,'#52BEFF',20);drawDot(route.ctx,1140,155,accent,26);
-        route.ctx.fillStyle='#E8FAFF'; route.ctx.font='800 26px system-ui';
-        route.ctx.fillText('TIERRA',205,215);route.ctx.fillText('LUNA',1100,215);
-        route.ctx.font='700 23px system-ui';route.ctx.fillText('DESTINO SECUNDARIO',550,145);
-        text(status,`LUNA  /  ${complete?'COMPLETA':started?'EN CURSO':'LISTA'}  /  MUESTRAS ${m.collected} DE 3`,98,28);
-        drawBar(status.ctx,34,186,1112,m.collected/3*100,accent,'OPERACION LUNAR');
+        else text(controls,'Misi\u00f3n opcional / progreso independiente',790,23);
+        const routeState=navigation?.getState() || {current:SOLAR_MISSION[0], currentIndex:0, task:{completed:true}, completed:new Set(['earth']), traveling:false};
+        drawSolarRoute({solarMap:route, state:routeState,
+            director:{isUnlocked:i=>navigation ? navigation.isUnlocked(i) : i<=1},
+            isHovered:(_p,type,index='')=>hover===`${type}:${index}`, onMoon:true, activeMoon:true});
+        text(status,'DESTINO',86,22,accent,1);
+        text(status,'LUNA',119,32,'#FFFFFF',1);
+        text(status,complete?'MUESTRAS RECUPERADAS':started?'RECOLECCI\u00d3N EN CURSO':'LISTA PARA INICIAR',174,19,'#BDEBF7',1);
+        const c=status.ctx;
+        c.strokeStyle='#286178'; c.lineWidth=2;
+        [382,798].forEach(x=>{c.beginPath();c.moveTo(x,85);c.lineTo(x,204);c.stroke();});
+        c.fillStyle=accent;c.font='800 22px ui-monospace, monospace';c.fillText('MUESTRAS',420,86);
+        c.fillStyle='#FFFFFF';c.font='900 32px system-ui';c.fillText(`${m.collected} / 3`,420,119);
+        c.fillStyle='#BDEBF7';c.font='800 20px ui-monospace, monospace';c.fillText('MISI\u00d3N OPCIONAL',420,174);
+        drawBar(c,838,155,306,m.collected/3*100,accent,'OPERACI\u00d3N');
         button(resume,'panels','MOSTRAR PANELES',83);
         terminal.panelMesh.visible=!focus;
         for(const p of panels) {p.mesh.visible=p===resume?focus:!focus;p.texture.needsUpdate=true;}
@@ -119,15 +140,18 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
             return Object.entries(HIT_ZONES).find(([key,r])=>['exit','recenter','talk','grab'].includes(key)&&pointInRect(point,r))?.[0] || '';
         }
         const p=panels.find(p=>p.mesh===h.object);
-        return p?.hitZones.find(z=>pointInRect({x:h.uv.x*p.canvas.width,y:(1-h.uv.y)*p.canvas.height},z.rect))?.key || '';
+        const point=p?{x:h.uv.x*p.canvas.width,y:(1-h.uv.y)*p.canvas.height}:null;
+        const zone=p?.hitZones.find(z=>z.rect?pointInRect(point,z.rect):Math.hypot(point.x-z.circle.x,point.y-z.circle.y)<=z.circle.r);
+        return zone?.key || (zone?.type==='destination'?`destination:${zone.index}`:zone?.type==='moon'?'moon:':'');
     }
     function clickHit(h) {
         if(!h || !meshes.includes(h.object)) return false;
         const key=keyFor(h);
-        if(key==='return') {mic.stop();guide.stop();onReturn?.();}
+        if(key.startsWith('destination:')) {void navigation?.travelTo(Number(key.split(':')[1]));}
+        else if(key==='return') {mic.stop();guide.stop();onReturn?.();}
         else if(key==='talk') void mic.toggleMic();
         else if(key==='recenter') recenter();
-        else if(key==='exit' || key==='grab') {mic.stop();focus=true;refresh();}
+        else if(key==='exit') {mic.stop();focus=true;refresh();}
         else if(key==='panels') {focus=false;refresh();}
         else if(key==='start') start();
         else if(key==='repeat') {say(context().objective);void guide.speak(context().objective);}
@@ -143,7 +167,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     say('Bienvenido a la Luna. Revisa el objetivo, la ciencia y la bitacora. Pulsa Iniciar operacion para recoger tres muestras. Puedes hablar conmigo mediante el microfono.');
     refresh();
     window.addEventListener('pagehide',()=>{mic.stop();guide.stop();});
-    return {group,refresh,click:ray=>clickHit(hit(ray)),setHover:ray=>hoverHit(hit(ray)),scroll,
+    return {group,refresh,inputContext:{panelMesh:terminal.panelMesh,panelCanvas:terminal.panelCanvas,uiGroup:group,state,drawPanel:drawTerminal},click:ray=>clickHit(hit(ray)),setHover:ray=>hoverHit(hit(ray)),scroll,
         clickHit,hoverHit,getInteractiveMeshes:()=>meshes.filter(m=>m.visible && group.visible),
         stop:()=>{mic.stop();guide.stop();},canCollect:()=>started,
         onXRStart:()=>mic.onXRSessionStart(),onXREnd:()=>mic.stop()};

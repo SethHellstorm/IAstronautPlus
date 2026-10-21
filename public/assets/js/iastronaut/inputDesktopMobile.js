@@ -10,7 +10,7 @@ function uvToCanvas(hit, panelCanvas) {
 function inRect(p, r) {
     return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 }
-export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, panelCanvas, uiGroup, state, drawPanel, recenterPanel, setPanelDistance, getPanelDistance, handleActionFromHit, getInteractiveMeshes, handleInteractiveClick, handleInteractivePressStart, handleInteractivePressEnd, handleInteractiveHover, handleMainPanelHover, }) {
+export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, panelCanvas, uiGroup, state, drawPanel, recenterPanel, setPanelDistance, getPanelDistance, handleActionFromHit, getInteractiveMeshes, handleInteractiveClick, handleInteractivePressStart, handleInteractivePressEnd, handleInteractiveHover, handleMainPanelHover, getPanelContext, }) {
     const raycaster = new THREE.Raycaster();
     const mouseNDC = new THREE.Vector2();
     const dragPanel = {
@@ -44,9 +44,9 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         return hits.length ? hits[0] : null;
     }
     function panelRaycast(ev) {
-        if (!panelMesh.visible)
+        if (!(getPanelContext?.()?.panelMesh ?? panelMesh).visible)
             return null;
-        return raycast(ev.clientX, ev.clientY, [panelMesh]);
+        return raycast(ev.clientX, ev.clientY, [(getPanelContext?.()?.panelMesh ?? panelMesh)]);
     }
     function interactiveRaycast(ev) {
         return raycast(ev.clientX, ev.clientY, (getInteractiveMeshes?.() || []).filter((object) => object && object.visible !== false));
@@ -71,8 +71,8 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         return hits;
     }
     function updatePanelPlane() {
-        const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(uiGroup.quaternion).normalize();
-        dragPanel.plane.setFromNormalAndCoplanarPoint(normal, uiGroup.position);
+        const normal = new THREE.Vector3(0, 0, 1).applyQuaternion((getPanelContext?.()?.uiGroup ?? uiGroup).quaternion).normalize();
+        dragPanel.plane.setFromNormalAndCoplanarPoint(normal, (getPanelContext?.()?.uiGroup ?? uiGroup).position);
     }
     function applyDraggedPanelPosition() {
         dragPanel.target.copy(dragPanel.intersection).add(dragPanel.offset).sub(camera.position);
@@ -80,10 +80,12 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
             return;
         // Mover cambia la dirección del panel, no su distancia respecto al usuario.
         dragPanel.target.normalize().multiplyScalar(dragPanel.radius);
-        uiGroup.position.copy(camera.position).add(dragPanel.target);
-        uiGroup.lookAt(camera.position);
+        (getPanelContext?.()?.uiGroup ?? uiGroup).position.copy(camera.position).add(dragPanel.target);
+        (getPanelContext?.()?.uiGroup ?? uiGroup).lookAt(camera.position);
     }
     function onPointerDown(ev) {
+        // Reservar clic derecho y Shift para mirar, incluso sobre suelo o paneles.
+        if (ev.button === 2 || ev.shiftKey || renderer.xr.isPresenting) return;
         downHit = null;
         downWasOnPanel = false;
         interactivePress.active = false;
@@ -109,7 +111,7 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         downWasOnPanel = true;
         scrollDrag.active = false;
         scrollDrag.moved = false;
-        const p = uvToCanvas(hit, panelCanvas);
+        const p = uvToCanvas(hit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
         if (!p)
             return;
         if (inRect(p, HIT_ZONES.chat)) {
@@ -139,10 +141,10 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         raycaster.setFromCamera(mouseNDC, camera);
         updatePanelPlane();
         if (raycaster.ray.intersectPlane(dragPanel.plane, dragPanel.intersection))
-            dragPanel.offset.copy(uiGroup.position).sub(dragPanel.intersection);
+            dragPanel.offset.copy((getPanelContext?.()?.uiGroup ?? uiGroup).position).sub(dragPanel.intersection);
         else
             dragPanel.offset.set(0, 0, 0);
-        dragPanel.radius = Math.max(0.001, uiGroup.position.distanceTo(camera.position));
+        dragPanel.radius = Math.max(0.001, (getPanelContext?.()?.uiGroup ?? uiGroup).position.distanceTo(camera.position));
     }
     function onPointerMove(ev) {
         if (interactivePress.active) {
@@ -158,16 +160,16 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
             const hit = panelRaycast(ev);
             if (!hit)
                 return;
-            const p = uvToCanvas(hit, panelCanvas);
+            const p = uvToCanvas(hit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
             if (!p || !inRect(p, HIT_ZONES.chat))
                 return;
             const dy = p.y - scrollDrag.lastCanvasY;
             scrollDrag.lastCanvasY = p.y;
             if (Math.abs(dy) > 1)
                 scrollDrag.moved = true;
-            state.scrollY = THREE.MathUtils.clamp(state.scrollY - dy * 1.15, 0, state.scrollMax);
-            state.scrollVel = 0;
-            drawPanel();
+            (getPanelContext?.()?.state ?? state).scrollY = THREE.MathUtils.clamp((getPanelContext?.()?.state ?? state).scrollY - dy * 1.15, 0, (getPanelContext?.()?.state ?? state).scrollMax);
+            (getPanelContext?.()?.state ?? state).scrollVel = 0;
+            (getPanelContext?.()?.drawPanel ?? drawPanel)();
             return;
         }
         if (dragPanel.active) {
@@ -237,7 +239,7 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         const hit = panelRaycast(ev);
         if (!hit)
             return;
-        const p = uvToCanvas(hit, panelCanvas);
+        const p = uvToCanvas(hit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
         if (!p || !inRect(p, HIT_ZONES.chat))
             return;
         if (ev.shiftKey) {
@@ -248,17 +250,20 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
             return;
         }
         ev.preventDefault();
-        state.scrollY = THREE.MathUtils.clamp(state.scrollY + Math.sign(ev.deltaY) * 70, 0, state.scrollMax);
-        state.scrollVel = 0;
-        drawPanel();
+        (getPanelContext?.()?.state ?? state).scrollY = THREE.MathUtils.clamp((getPanelContext?.()?.state ?? state).scrollY + Math.sign(ev.deltaY) * 70, 0, (getPanelContext?.()?.state ?? state).scrollMax);
+        (getPanelContext?.()?.state ?? state).scrollVel = 0;
+        (getPanelContext?.()?.drawPanel ?? drawPanel)();
     }
     renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
     const look = { active: false, yaw: 0, pitch: 0, lastX: 0, lastY: 0 };
     function onLookDown(ev) {
-        if (isMobileUA())
+        if (isMobileUA() || renderer.xr.isPresenting)
             return;
         if (!(ev.button === 2 || ev.shiftKey))
             return;
+        const orientation = new THREE.Euler().setFromQuaternion(camera.quaternion, "YXZ");
+        look.yaw = orientation.y;
+        look.pitch = orientation.x;
         look.active = true;
         look.lastX = ev.clientX;
         look.lastY = ev.clientY;
@@ -274,7 +279,7 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         look.yaw -= dx * 0.003;
         look.pitch = THREE.MathUtils.clamp(look.pitch - dy * 0.003, -1.2, 1.2);
         camera.quaternion.copy(new THREE.Quaternion().setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, "YXZ")));
-        uiGroup.lookAt(camera.position);
+        (getPanelContext?.()?.uiGroup ?? uiGroup).lookAt(camera.position);
     }
     function onLookUp() {
         look.active = false;
@@ -304,11 +309,11 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         if (ev.touches.length !== 1)
             return;
         const touch = ev.touches[0];
-        const panelHit = panelMesh.visible ? raycast(touch.clientX, touch.clientY, [panelMesh]) : null;
+        const panelHit = (getPanelContext?.()?.panelMesh ?? panelMesh).visible ? raycast(touch.clientX, touch.clientY, [(getPanelContext?.()?.panelMesh ?? panelMesh)]) : null;
         const interactiveHit = raycast(touch.clientX, touch.clientY, (getInteractiveMeshes?.() || []).filter((object) => object && object.visible !== false));
         const hits = nearestHit(panelHit, interactiveHit);
         if (hits.type === "panel") {
-            const p = uvToCanvas(hits.panelHit, panelCanvas);
+            const p = uvToCanvas(hits.panelHit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
             if (p && inRect(p, HIT_ZONES.chat)) {
                 touchScroll.active = true;
                 touchScroll.lastY = touch.clientY;
@@ -341,9 +346,9 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
             const touch = ev.touches[0];
             const dy = touch.clientY - touchScroll.lastY;
             touchScroll.lastY = touch.clientY;
-            state.scrollY = THREE.MathUtils.clamp(state.scrollY - dy * 1.2, 0, state.scrollMax);
-            state.scrollVel = 0;
-            drawPanel();
+            (getPanelContext?.()?.state ?? state).scrollY = THREE.MathUtils.clamp((getPanelContext?.()?.state ?? state).scrollY - dy * 1.2, 0, (getPanelContext?.()?.state ?? state).scrollMax);
+            (getPanelContext?.()?.state ?? state).scrollVel = 0;
+            (getPanelContext?.()?.drawPanel ?? drawPanel)();
             ev.preventDefault();
             return;
         }
@@ -356,7 +361,7 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
             look.yaw -= dx * 0.0035;
             look.pitch = THREE.MathUtils.clamp(look.pitch - dy * 0.0035, -1.2, 1.2);
             camera.quaternion.copy(new THREE.Quaternion().setFromEuler(new THREE.Euler(look.pitch, look.yaw, 0, "YXZ")));
-            uiGroup.lookAt(camera.position);
+            (getPanelContext?.()?.uiGroup ?? uiGroup).lookAt(camera.position);
             ev.preventDefault();
         }
     }

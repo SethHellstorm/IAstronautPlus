@@ -24,6 +24,32 @@ export function createMoonTerrain({ THREE, scene: escena, world: mundoLunar, ren
     mundoLunar.add(sol, sol.target);
 
     const cargador = new THREE.TextureLoader();
+    // Reutilizar los discos de los panoramas existentes mediante coordenadas UV.
+    // Permanecen en el mundo lunar, independientes del HUD y de la mirada.
+    function cuerpoCeleste(nombre, archivo, centro, radioUV, posicion, radio) {
+      const geometria = new THREE.CircleGeometry(radio, 96);
+      const uv = geometria.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        uv.setXY(i, centro[0] + (uv.getX(i) - 0.5) * radioUV[0] * 2,
+          1 - centro[1] + (uv.getY(i) - 0.5) * radioUV[1] * 2);
+      }
+      const material = new THREE.MeshBasicMaterial({color:0xffffff, side:THREE.DoubleSide, toneMapped:false});
+      const cuerpo = new THREE.Mesh(geometria, material);
+      cuerpo.name = nombre;
+      cuerpo.position.copy(posicion);
+      cuerpo.lookAt(0, 1.48, 0);
+      cuerpo.visible = false;
+      mundoLunar.add(cuerpo);
+      cargador.load(`${base}/assets/img/${archivo}`, textura => {
+        textura.colorSpace = THREE.SRGBColorSpace;
+        material.map = textura; material.needsUpdate = true; cuerpo.visible = true;
+      }, undefined, error => console.warn(`No se pudo cargar ${nombre}`, error));
+    }
+    cuerpoCeleste('Tierra en cielo lunar', 'universe-vr.jpg',
+      [1235/2048,492/1024], [205/2048,205/1024], new THREE.Vector3(-85,65,-100), 7);
+    cuerpoCeleste('Sol en cielo lunar', 'solar-mission/sun.jpg',
+      [1700/2048,505/1024], [235/2048,235/1024], sol.position.clone().normalize().multiplyScalar(150), 2.5);
+
     cargador.load(
       `${base}/assets/sidequests/moon/textures/surface.png`,
       (textura) => {

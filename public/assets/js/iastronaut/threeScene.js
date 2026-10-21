@@ -387,7 +387,8 @@ function createDesktopHelp(renderer) {
             if (!moon) {
                 const { createMoonExperience } = await import("./moonExperience.js");
                 moon = createMoonExperience({ THREE, scene, camera, renderer, base: APP_BASE,
-                    onReturn: closeMoon, exitVR: exitImmersiveVR });
+                    onReturn: closeMoon, exitVR: exitImmersiveVR,
+                    navigation:{getState:()=>director.getState(),isUnlocked:i=>director.isUnlocked(i),travelTo:async i=>{if(!director.isUnlocked(i))return;closeMoon();await director.travelTo(i);}} });
             }
             state = director.getState();
             if (state.current.id !== "earth" || state.traveling || !isMoonUnlocked(state)) return;
@@ -548,6 +549,7 @@ function createDesktopHelp(renderer) {
         return "";
     }
     function handleMainPanelHover(hit) {
+        if (moonActive) { moon.hoverHit(hit); return; }
         const next = mainPanelHoverName(hit);
         if (uiState.hoverZone !== next) {
             uiState.hoverZone = next;
@@ -555,7 +557,7 @@ function createDesktopHelp(renderer) {
         }
     }
     async function handleActionFromHit(hit) {
-        if (moonActive) return;
+        if (moonActive) return moon.handleHit(hit);
         const point = canvasPoint(hit);
         if (!point)
             return;
@@ -654,6 +656,7 @@ function createDesktopHelp(renderer) {
         return [...missionPanels.getInteractiveMeshes(), ...missionWorld.getInteractiveMeshes(), vrExitControl.mesh];
     }
     setupDesktopMobileInput({
+        getPanelContext:()=>moonActive?moon.getInputContext():null,
         THREE,
         renderer,
         camera,
@@ -709,6 +712,7 @@ function createDesktopHelp(renderer) {
         event.preventDefault(); event.stopImmediatePropagation();
     }, {capture:true,passive:false});
     const xr = setupXRInput({
+        getPanelContext:()=>moonActive?moon.getInputContext():null,
         THREE,
         renderer,
         scene,

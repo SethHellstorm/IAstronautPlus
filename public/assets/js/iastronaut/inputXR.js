@@ -7,7 +7,7 @@ function uvToCanvas(hit, panelCanvas) {
 function inRect(p, r) {
     return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
 }
-export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelCanvas, uiGroup, state, drawPanel, handleActionFromHit, getInteractiveMeshes, handleInteractiveClick, handleInteractivePressStart, handleInteractivePressEnd, handleInteractiveHover, handleMainPanelHover, }) {
+export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelCanvas, uiGroup, state, drawPanel, handleActionFromHit, getInteractiveMeshes, handleInteractiveClick, handleInteractivePressStart, handleInteractivePressEnd, handleInteractiveHover, handleMainPanelHover, getPanelContext, }) {
     const raycaster = new THREE.Raycaster();
     const tempMatrix = new THREE.Matrix4();
     const dragVR = { active: false, controller: null, downTime: 0, plane: new THREE.Plane(), intersection: new THREE.Vector3(), offset: new THREE.Vector3(), target: new THREE.Vector3(), headPosition: new THREE.Vector3(), radius: 0 };
@@ -34,9 +34,9 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         return hits.length ? hits[0] : null;
     }
     function castToPanelFromController(controller) {
-        if (!panelMesh.visible)
+        if (!(getPanelContext?.()?.panelMesh ?? panelMesh).visible)
             return null;
-        return castFromController(controller, [panelMesh]);
+        return castFromController(controller, [(getPanelContext?.()?.panelMesh ?? panelMesh)]);
     }
     function castToInteractiveFromController(controller) {
         return castFromController(controller, interactiveList());
@@ -54,8 +54,8 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         return nearestHit(castToPanelFromController(controller), castToInteractiveFromController(controller));
     }
     function updateDragPlaneVR() {
-        const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(uiGroup.quaternion).normalize();
-        dragVR.plane.setFromNormalAndCoplanarPoint(normal, uiGroup.position);
+        const normal = new THREE.Vector3(0, 0, 1).applyQuaternion((getPanelContext?.()?.uiGroup ?? uiGroup).quaternion).normalize();
+        dragVR.plane.setFromNormalAndCoplanarPoint(normal, (getPanelContext?.()?.uiGroup ?? uiGroup).position);
     }
     function getHeadPosition(target) {
         renderer.xr.getCamera(camera).getWorldPosition(target);
@@ -68,14 +68,14 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
             return;
         // Mover cambia la dirección del panel, no su distancia respecto a la cabeza.
         dragVR.target.normalize().multiplyScalar(dragVR.radius);
-        uiGroup.position.copy(headPos).add(dragVR.target);
-        uiGroup.lookAt(headPos);
+        (getPanelContext?.()?.uiGroup ?? uiGroup).position.copy(headPos).add(dragVR.target);
+        (getPanelContext?.()?.uiGroup ?? uiGroup).lookAt(headPos);
     }
     function startDragVR(controller, preferredHit = null) {
         const hit = preferredHit || castToPanelFromController(controller);
         if (!hit)
             return false;
-        const p = uvToCanvas(hit, panelCanvas);
+        const p = uvToCanvas(hit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
         if (!p || inRect(p, HIT_ZONES.chat) || !inRect(p, HIT_ZONES.grab))
             return false;
         dragVR.active = true;
@@ -83,10 +83,10 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         dragVR.downTime = performance.now();
         updateDragPlaneVR();
         if (raycaster.ray.intersectPlane(dragVR.plane, dragVR.intersection))
-            dragVR.offset.copy(uiGroup.position).sub(dragVR.intersection);
+            dragVR.offset.copy((getPanelContext?.()?.uiGroup ?? uiGroup).position).sub(dragVR.intersection);
         else
             dragVR.offset.set(0, 0, 0);
-        dragVR.radius = Math.max(0.001, uiGroup.position.distanceTo(getHeadPosition(dragVR.headPosition)));
+        dragVR.radius = Math.max(0.001, (getPanelContext?.()?.uiGroup ?? uiGroup).position.distanceTo(getHeadPosition(dragVR.headPosition)));
         return true;
     }
     function updateDragVR() {
@@ -103,16 +103,16 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         const hit = castToPanelFromController(scrollVR.controller);
         if (!hit)
             return;
-        const p = uvToCanvas(hit, panelCanvas);
+        const p = uvToCanvas(hit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
         if (!p || !inRect(p, HIT_ZONES.chat))
             return;
         const dy = p.y - scrollVR.lastCanvasY;
         scrollVR.lastCanvasY = p.y;
         if (Math.abs(dy) > 1)
             scrollVR.moved = true;
-        state.scrollY = THREE.MathUtils.clamp(state.scrollY - dy * 1.15, 0, state.scrollMax);
-        state.scrollVel = 0;
-        drawPanel();
+        (getPanelContext?.()?.state ?? state).scrollY = THREE.MathUtils.clamp((getPanelContext?.()?.state ?? state).scrollY - dy * 1.15, 0, (getPanelContext?.()?.state ?? state).scrollMax);
+        (getPanelContext?.()?.state ?? state).scrollVel = 0;
+        (getPanelContext?.()?.drawPanel ?? drawPanel)();
     }
     function endDragVR() {
         if (!dragVR.active)
@@ -163,7 +163,7 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         controller.addEventListener("selectstart", () => {
             const hits = primaryHitsFromController(controller);
             if (hits.type === "panel") {
-                const p = uvToCanvas(hits.panelHit, panelCanvas);
+                const p = uvToCanvas(hits.panelHit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
                 if (p && inRect(p, HIT_ZONES.chat)) {
                     scrollVR.active = true;
                     scrollVR.controller = controller;
@@ -262,11 +262,11 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         for (const hand of [hand0, hand1]) {
             if (!isPinching(hand, false))
                 continue;
-            const panelHit = panelMesh.visible ? castFromHand(hand, [panelMesh]) : null;
+            const panelHit = (getPanelContext?.()?.panelMesh ?? panelMesh).visible ? castFromHand(hand, [(getPanelContext?.()?.panelMesh ?? panelMesh)]) : null;
             const interactiveHit = castFromHand(hand, interactiveList());
             const hits = nearestHit(panelHit, interactiveHit);
             if (hits.type === "panel") {
-                const p = uvToCanvas(hits.panelHit, panelCanvas);
+                const p = uvToCanvas(hits.panelHit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
                 if (p && inRect(p, HIT_ZONES.chat)) {
                     handAction.active = true;
                     handAction.hand = hand;
@@ -316,17 +316,17 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         }
         if (handAction.mode !== "scroll")
             return;
-        const hit = castFromHand(hand, [panelMesh]);
+        const hit = castFromHand(hand, [(getPanelContext?.()?.panelMesh ?? panelMesh)]);
         if (!hit)
             return;
-        const p = uvToCanvas(hit, panelCanvas);
+        const p = uvToCanvas(hit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
         if (!p || !inRect(p, HIT_ZONES.chat))
             return;
-        const dy = (p.y - handAction.lastY) / panelCanvas.height;
+        const dy = (p.y - handAction.lastY) / (getPanelContext?.()?.panelCanvas ?? panelCanvas).height;
         handAction.lastY = p.y;
         handAction.dySmoothed = handAction.dySmoothed * 0.75 + dy * 0.25;
-        state.scrollVel = THREE.MathUtils.clamp(state.scrollVel + handAction.dySmoothed * 20, -55, 55);
-        drawPanel();
+        (getPanelContext?.()?.state ?? state).scrollVel = THREE.MathUtils.clamp((getPanelContext?.()?.state ?? state).scrollVel + handAction.dySmoothed * 20, -55, 55);
+        (getPanelContext?.()?.drawPanel ?? drawPanel)();
     }
     function updateThumbsticks() {
         for (const controller of [controller0, controller1]) {
@@ -336,15 +336,15 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
             const hit = castToPanelFromController(controller);
             if (!hit)
                 continue;
-            const p = uvToCanvas(hit, panelCanvas);
+            const p = uvToCanvas(hit, (getPanelContext?.()?.panelCanvas ?? panelCanvas));
             if (!p || !inRect(p, HIT_ZONES.chat))
                 continue;
             const axis = gamepad.axes.length >= 4 ? gamepad.axes[3] : gamepad.axes[1];
             if (Math.abs(axis) < 0.18)
                 continue;
-            state.scrollY = THREE.MathUtils.clamp(state.scrollY + axis * 13, 0, state.scrollMax);
-            state.scrollVel = 0;
-            drawPanel();
+            (getPanelContext?.()?.state ?? state).scrollY = THREE.MathUtils.clamp((getPanelContext?.()?.state ?? state).scrollY + axis * 13, 0, (getPanelContext?.()?.state ?? state).scrollMax);
+            (getPanelContext?.()?.state ?? state).scrollVel = 0;
+            (getPanelContext?.()?.drawPanel ?? drawPanel)();
         }
     }
     function updateHover() {
@@ -373,7 +373,7 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         }
         if (!selectedInteractiveHit && !selectedPanelHit) {
             for (const hand of [hand0, hand1]) {
-                const panelHit = panelMesh.visible ? castFromHand(hand, [panelMesh]) : null;
+                const panelHit = (getPanelContext?.()?.panelMesh ?? panelMesh).visible ? castFromHand(hand, [(getPanelContext?.()?.panelMesh ?? panelMesh)]) : null;
                 const interactiveHit = castFromHand(hand, interactiveList());
                 const hits = nearestHit(panelHit, interactiveHit);
                 if (hits.type === "panel" && !selectedPanelHit)

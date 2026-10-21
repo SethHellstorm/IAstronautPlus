@@ -70,6 +70,13 @@
     const objetosSeleccion = [];
     const recogidas = new Set();
     let muestrasListas = false;
+    let operacionIniciada = false;
+    function actualizarVisibilidadMuestras() {
+      for (const muestra of muestras) {
+        muestra.soporte.visible = operacionIniciada && !recogidas.has(muestra.id);
+        muestra.aro.visible = muestra.soporte.visible;
+      }
+    }
     function recalibrarHUD() {
       const vista = renderer.xr.isPresenting ? renderer.xr.getCamera(camara) : camara;
       vista.updateWorldMatrix(true, false);
@@ -80,7 +87,8 @@
       panelMision.quaternion.copy(giro);
     }
     const hud = createMoonInterface({ THREE, scene: escena, renderer,
-      getMission: () => ({ready:muestrasListas,collected:recogidas.size}), recenter:recalibrarHUD });
+      getMission: () => ({ready:muestrasListas,collected:recogidas.size}), recenter:recalibrarHUD,
+      onStart:()=>{operacionIniciada=true;actualizarVisibilidadMuestras();} });
     const panelMision = hud.group;
     function mostrarMision(error = "") {
       hud.refresh(error);
@@ -239,12 +247,13 @@
       mesh, position: mesh.position.clone(), quaternion: mesh.quaternion.clone()
     }));
     estado.hidden = true;
+    renderer.domElement.addEventListener("contextmenu", evento => evento.preventDefault());
     let inicioClic = null;
     const rayoRaton = new THREE.Raycaster();
     renderer.domElement.addEventListener("pointerdown", evento => {
-      if (!controles.enabled || renderer.xr.isPresenting || evento.button !== 0 || inicioClic) return;
+      if (!controles.enabled || renderer.xr.isPresenting || ![0, 2].includes(evento.button) || inicioClic) return;
       inicioClic = { x: evento.clientX, y: evento.clientY,
-        lastX: evento.clientX, lastY: evento.clientY, id: evento.pointerId, moved: false };
+        lastX: evento.clientX, lastY: evento.clientY, id: evento.pointerId, mirar: evento.button === 2 || evento.shiftKey, moved: false };
       renderer.domElement.setPointerCapture(evento.pointerId);
     });
     renderer.domElement.addEventListener("pointermove", evento => {
@@ -254,6 +263,7 @@
       inicioClic.lastX = evento.clientX;
       inicioClic.lastY = evento.clientY;
       if (Math.hypot(evento.clientX - inicioClic.x, evento.clientY - inicioClic.y) > 5) inicioClic.moved = true;
+      if (!inicioClic.mirar) return;
       mirada.setFromQuaternion(camara.quaternion, "YXZ");
       mirada.y -= dx * 0.003;
       mirada.x = THREE.MathUtils.clamp(mirada.x - dy * 0.003, -Math.PI / 2 + 0.01, Math.PI / 2 - 0.01);
@@ -266,7 +276,7 @@
       const inicio = inicioClic;
       inicioClic = null;
       if (renderer.domElement.hasPointerCapture(evento.pointerId)) renderer.domElement.releasePointerCapture(evento.pointerId);
-      if (!inicio || inicio.moved || inicio.id !== evento.pointerId || renderer.xr.isPresenting ||
+      if (!inicio || inicio.mirar || inicio.moved || inicio.id !== evento.pointerId || renderer.xr.isPresenting ||
           Math.hypot(evento.clientX - inicio.x, evento.clientY - inicio.y) > 5) return;
       const rect = renderer.domElement.getBoundingClientRect();
       camara.updateMatrixWorld(true);
@@ -346,7 +356,7 @@
 
     createMoonTerrain({ THREE, scene: escena, world: mundoLunar, renderer,
       samples: muestras, objects: objetosSeleccion, base: window.APP_BASE,
-      onChange: error => { muestrasListas = muestras.length === 3; mostrarMision(error); }
+      onChange: error => { muestrasListas = muestras.length === 3; actualizarVisibilidadMuestras(); mostrarMision(error); }
     });
 
     addEventListener("resize", () => {
