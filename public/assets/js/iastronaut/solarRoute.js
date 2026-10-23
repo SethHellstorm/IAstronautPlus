@@ -117,7 +117,8 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, a
             const x = startX + gap * i;
             const unlocked = state.completed.has(SOLAR_MISSION[i].id);
             const enabled = ready && unlocked && !!onMoon && !state.traveling;
-            const hovered = enabled && isHovered(solarMap, "moon", "");
+            const selectable = ready && !!onMoon && !state.traveling;
+            const hovered = selectable && isHovered(solarMap, "moon", "");
             ctx.strokeStyle = unlocked ? "#78E8FF" : "#405865";
             ctx.lineWidth = 3;
             ctx.beginPath();
@@ -137,7 +138,7 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, a
             ctx.font = "700 15px ui-monospace, monospace";
             ctx.fillStyle = enabled ? "#65F2A0" : "#93A8B2";
             ctx.fillText(!ready ? "PR\u00d3XIMAMENTE" : activeMoon && i === 0 ? "ACTUAL" : unlocked ? "DISPONIBLE" : "BLOQUEADA", x, 441);
-            if (enabled) solarMap.hitZones.push({type: "moon", rect: {x: x - 62, y: 315, w: 124, h: 150}});
+            if (selectable) solarMap.hitZones.push({type: "moon", rect: {x: x - 62, y: 315, w: 124, h: 150}});
         });
         ctx.textAlign = "left";
         texture.needsUpdate = true;

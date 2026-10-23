@@ -16,7 +16,7 @@ export function createMoonExperience({ THREE, scene, camera, renderer, base, onR
     const viewPosition=new THREE.Vector3(),viewRotation=new THREE.Quaternion();
     const hud=createMoonInterface({THREE,scene:root,renderer,
         navigation, getMission:()=>({ready,error,started:progress.getState().started,collected:progress.getState().collected.length}),
-        recenter:()=>anchor(false),onReturn,onStart:()=>{progress.start();refreshSamples();}});
+        recenter:()=>anchor(false),onReturn,onRestart:()=>{progress.reset();refreshSamples();},onStart:()=>{progress.start();refreshSamples();}});
     const canvas=document.createElement('canvas');canvas.width=640;canvas.height=256;
     const ctx=canvas.getContext('2d');
     const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
@@ -72,7 +72,7 @@ export function createMoonExperience({ THREE, scene, camera, renderer, base, onR
     }
     drawExit();
     return {
-        root,getInputContext:()=>hud.inputContext,enter(){active=true;needsAnchor=true;root.visible=false;drawExit();hud.refresh(error);},
+        root,getInputContext:()=>hud.inputContext,enter(){active=true;needsAnchor=true;root.visible=false;drawExit();hud.refresh(error);hud.enter();},
         leave(){active=false;root.visible=false;hud.stop();},
         update(frame){
             if(!active)return;

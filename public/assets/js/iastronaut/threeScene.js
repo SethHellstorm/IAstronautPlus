@@ -381,8 +381,11 @@ function createDesktopHelp(renderer) {
     async function openMoon() {
         if (moonActive || moonOpening) return;
         let state = director.getState();
-        if (state.current.id !== "earth" || state.traveling || !isMoonUnlocked(state)) return;
+        if (state.traveling) return;
+        if (!isMoonUnlocked(state)) {director.announceMoonLocked();return;}
+        if (state.current.id !== "earth") return;
         moonOpening = true;
+        let transitionStarted = false;
         try {
             if (!moon) {
                 const { createMoonExperience } = await import("./moonExperience.js");
@@ -394,6 +397,10 @@ function createDesktopHelp(renderer) {
             if (state.current.id !== "earth" || state.traveling || !isMoonUnlocked(state)) return;
             dismissPendingWelcome();
             mic.stop(); voiceGuide.stop();
+            const travelStartedAt = performance.now();
+            transitionStarted = true;
+            travelEffect.start();
+            await fadeTo(0.82, 0.44);
             sendHaptic({effect:"apagar",scene:"earth"});
             const xrObjects = new Set([...Object.values(xr.controllers), ...Object.values(xr.hands), camera, moon.root]);
             mainSceneSnapshot = {
@@ -408,11 +415,19 @@ function createDesktopHelp(renderer) {
             renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             moonActive = true;
             moon.enter();
+            const remaining = Math.max(0, 1150 - (performance.now() - travelStartedAt));
+            if (remaining) await new Promise(resolve => setTimeout(resolve, remaining));
         } catch (error) {
             console.error("No se pudo abrir la Luna:", error);
             if (moonActive) closeMoon();
             addBubble(uiState, drawPanel, "No se pudo abrir la Luna. Intenta de nuevo.", "bot");
-        } finally { moonOpening = false; }
+        } finally {
+            if (transitionStarted) {
+                await fadeTo(0, 0.62);
+                travelEffect.stop();
+            }
+            moonOpening = false;
+        }
     }
     function closeMoon() {
         if (!moonActive) return;
@@ -557,6 +572,7 @@ function createDesktopHelp(renderer) {
         }
     }
     async function handleActionFromHit(hit) {
+        if (moonOpening) return;
         if (moonActive) return moon.handleHit(hit);
         const point = canvasPoint(hit);
         if (!point)
@@ -627,6 +643,7 @@ function createDesktopHelp(renderer) {
             missionWorld.endPress();
     }
     async function handleInteractiveClick(hit) {
+        if (moonOpening) return true;
         if (moonActive) return moon.handleHit(hit);
         if (isVRExitHit(hit)) {
             if (renderer.xr.isPresenting)
@@ -652,6 +669,7 @@ function createDesktopHelp(renderer) {
         missionWorld.setHoverHit(hit);
     }
     function getInteractiveMeshes() {
+        if (moonOpening) return [];
         if (moonActive) return moon.getInteractiveMeshes();
         return [...missionPanels.getInteractiveMeshes(), ...missionWorld.getInteractiveMeshes(), vrExitControl.mesh];
     }
@@ -791,14 +809,14 @@ function createDesktopHelp(renderer) {
     renderer.setAnimationLoop((time, frame) => {
         const delta = Math.min(0.05, clock.getDelta());
         const t = clock.elapsedTime;
+        updateFade(delta);
+        travelEffect.update(delta);
         if (moonActive) {
             moon.update(frame);
             xr.tickXR?.();
             renderer.render(scene, camera);
             return;
         }
-        updateFade(delta);
-        travelEffect.update(delta);
         director.update(delta);
         xr.tickXR?.();
         if (Math.abs(uiState.scrollVel) > 0.01 && uiState.scrollMax > 0) {

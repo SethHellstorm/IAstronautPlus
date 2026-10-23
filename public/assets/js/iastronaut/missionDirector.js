@@ -940,6 +940,10 @@ export function createMissionDirector({ onSceneChange, onMissionMessage, onHapti
         return applyScene(false);
     }
     return {
+        announceMoonLocked() {
+            const message = "La Luna sigue bloqueada. Completa primero la misi\u00f3n de la Tierra para desbloquear esta localizaci\u00f3n opcional.";
+            notify(message, message, "route_locked");
+        },
         subscribe,
         initialize,
         update,

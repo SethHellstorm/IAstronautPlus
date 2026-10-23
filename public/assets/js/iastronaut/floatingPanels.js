@@ -1,3 +1,4 @@
+import { drawMissionLog } from './missionLog.js';
 import { drawSolarRoute } from "./solarRoute.js";
 import { SOLAR_MISSION, MISSION_TOPIC_ORDER } from "./missionData.js";
 import { MAIN_PANEL_WIDTH, MAIN_PANEL_HEIGHT, MAIN_PANEL_Y, PANEL_LAYOUT_GAP } from "./config.js";
@@ -25,6 +26,7 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         mainPanelMesh.position.y = MAIN_PANEL_Y;
     }
     let state = director.getState();
+    let logSection = "main";
     let hoverKey = "";
     let dossierMode = state.objectivesMode === "log" ? "log" : "mission";
     let previousObjectivesMode = state.objectivesMode;
@@ -297,28 +299,9 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         drawWrapped(ctx, selected.detail, 54, 558, 650, 32, 4);
     }
     function drawLogDossier(ctx) {
-        const completedCount = SOLAR_MISSION.filter((item) => state.completed.has(item.id)).length;
-        drawBar(ctx, 36, 184, 688, completedCount / SOLAR_MISSION.length * 100, "#35DFF2", "RED HELIOS RESTAURADA");
-        let y = 246;
-        for (let i = 0; i < SOLAR_MISSION.length; i++) {
-            const item = SOLAR_MISSION[i];
-            const done = state.completed.has(item.id);
-            const active = i === state.currentIndex;
-            const unlocked = director.isUnlocked(i);
-            ctx.fillStyle = active ? `${item.accent}38` : "rgba(15, 51, 76, 0.62)";
-            roundRect(ctx, 30, y, 700, 46, 11);
-            ctx.fill();
-            drawDot(ctx, 58, y + 23, done ? "#16E06B" : active ? item.accent : unlocked ? "#5EAFC8" : "#415664", 7, done || active ? 12 : 0);
-            ctx.fillStyle = unlocked ? "#E6F8FF" : "#718995";
-            ctx.font = "800 23px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-            ctx.textBaseline = "middle";
-            ctx.fillText(`${String(i).padStart(2, "0")} · ${item.name.toUpperCase()}`, 84, y + 23);
-            ctx.textAlign = "right";
-            ctx.fillStyle = done ? "#77F4A8" : active ? item.accent : unlocked ? "#91D3E7" : "#617782";
-            ctx.fillText(done ? "COMPLETA" : active ? "ACTUAL" : unlocked ? "DISPONIBLE" : "BLOQUEADA", 702, y + 23);
-            ctx.textAlign = "left";
-            y += 50;
-        }
+        drawMissionLog({ctx,state,isUnlocked:i=>director.isUnlocked(i),section:logSection,
+            hover:isHovered(dossier,'logSection','optional')?'optional':isHovered(dossier,'logSection','main')?'main':'',
+            onZone:(key,rect)=>dossier.hitZones.push({type:'logSection',key,rect})});
     }
     function drawDossier() {
         const { ctx, canvas, texture } = dossier;
@@ -393,7 +376,8 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         const zone = findZone(panel, point);
         if (!zone)
             return false;
-        if (zone.type === "topic") {
+        if (zone.type === "logSection") {logSection=zone.key;markAll();}
+        else if (zone.type === "topic") {
             dossierMode = "science";
             director.setSelectedTopic(zone.key);
         }
@@ -422,7 +406,8 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         else if (zone.type === "destination")
             await director.travelTo(zone.index);
         else if (zone.type === "moon") {
-            if (!state.completed.has("earth") || state.traveling) return false;
+            if (state.traveling) return false;
+            if (!state.completed.has("earth")) {await onMoon?.();return true;}
             if (state.current.id !== "earth") await director.travelTo(0);
             await onMoon?.();
         }

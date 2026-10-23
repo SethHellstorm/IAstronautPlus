@@ -17,6 +17,7 @@ export function createMoonProgress(storage) {
     }
     return {
         getState: () => ({started, collected:[...collected], completed:collected.size===3, persistent}),
+        reset() { collected.clear(); started=false; save(); },
         start() { started=true; save(); },
         collect(id) {
             if (!started || !Number.isInteger(id) || id<0 || id>2 || collected.has(id)) return false;

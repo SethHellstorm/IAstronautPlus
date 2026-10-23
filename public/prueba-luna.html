@@ -88,6 +88,7 @@
     }
     const hud = createMoonInterface({ THREE, scene: escena, renderer,
       getMission: () => ({ready:muestrasListas,collected:recogidas.size}), recenter:recalibrarHUD,
+      onRestart:()=>{recogidas.clear();operacionIniciada=false;actualizarVisibilidadMuestras();},
       onStart:()=>{operacionIniciada=true;actualizarVisibilidadMuestras();} });
     const panelMision = hud.group;
     function mostrarMision(error = "") {

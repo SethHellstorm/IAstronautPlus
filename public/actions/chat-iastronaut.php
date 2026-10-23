@@ -167,6 +167,11 @@ function inferMissionAction(string $text): ?array {
   $normalized = function_exists('mb_strtolower') ? mb_strtolower($text, 'UTF-8') : strtolower($text);
   $normalized = trim(preg_replace('/\s+/u', ' ', $normalized) ?? $normalized);
   if (preg_match('/^(cómo|como|qué|que|puedo|podría|podria|debo|dónde|donde)\b/u', $normalized)) return null;
+  if (preg_match('/\b(bitacora|bit\x{00e1}cora|registro)\b.*\b(opcionales|secundarias|extras)\b/u', $normalized)) return ['type' => 'show_log', 'target' => 'optional'];
+  $scienceTopics = ['composition' => 'composici[o\x{00f3}]n', 'temperature' => 'temperatura', 'gravity' => 'gravedad', 'curiosity' => 'curiosidad', 'compare' => 'comparar|comparaci[o\x{00f3}]n'];
+  foreach ($scienceTopics as $topic => $pattern) {
+    if (preg_match('/\b(abre|muestra|explica|dime|habla|cu[e\x{00e9}]ntame)\b.*\b(' . $pattern . ')\b/u', $normalized)) return ['type' => 'select_topic', 'target' => $topic];
+  }
   if (preg_match('/\b(señala|señalar|marca|marcar|resalta|resaltar|muéstrame|muestrame)\b.*\b(objetivo|blanco|siguiente paso|ruta)\b/u', $normalized)) return ['type' => 'highlight_target'];
   if (preg_match('/\b(repite|repetir|dime otra vez)\b.*\b(instrucciones|objetivo|misión|mision)\b/u', $normalized)) return ['type' => 'repeat_briefing'];
   if (preg_match('/\b(abre|muestra|enséñame|enseñame)\b.*\b(bitácora|bitacora|registro)\b/u', $normalized)) return ['type' => 'show_log'];

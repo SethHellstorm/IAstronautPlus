@@ -49,8 +49,8 @@ function transitionHarness(completed=true) {
     const code=source.slice(source.indexOf('    async function openMoon()'),source.indexOf('    let narrationSequence'));
     const main={visible:true},hidden={visible:false},controller={visible:true},hand={visible:true},camera={};
     const moon={root:{visible:false},enter(){this.root.visible=true},leave(){this.root.visible=false}};
-    const ctx=vm.createContext({moon,moonActive:false,moonOpening:false,mainSceneSnapshot:null,
-        director:{getState:()=>({current:{id:'earth'},traveling:false,completed:new Set(completed?['earth']:[])})},
+    const ctx=vm.createContext({performance:{now:()=>0},setTimeout:fn=>fn(),fadeTo:async()=>{},travelEffect:{start(){},stop(){}},moon,moonActive:false,moonOpening:false,mainSceneSnapshot:null,
+        director:{announceMoonLocked(){ctx.lockedNotice=true;},getState:()=>({current:{id:'earth'},traveling:false,completed:new Set(completed?['earth']:[])})},
         isMoonUnlocked:s=>s.completed.has('earth'),dismissPendingWelcome(){},mic:{stop(){}},voiceGuide:{stop(){}},sendHaptic(){},
         xr:{controllers:{controller},hands:{hand}},camera,
         scene:{children:[main,hidden,controller,hand,moon.root],background:'stars',environment:'env'},
@@ -61,7 +61,7 @@ function transitionHarness(completed=true) {
 }
 test('entrada bloqueada no cambia la escena',async()=>{
     const h=transitionHarness(false);await vm.runInContext('openMoon()',h.ctx);
-    assert.equal(h.ctx.moonActive,false);assert.equal(h.main.visible,true);assert.equal(h.ctx.scene.background,'stars');
+    assert.equal(h.ctx.lockedNotice,true);assert.equal(h.ctx.moonActive,false);assert.equal(h.main.visible,true);assert.equal(h.ctx.scene.background,'stars');
 });
 test('entrada oculta mundo principal y conserva mandos; regreso restaura visibilidad y luces',async()=>{
     const h=transitionHarness();await vm.runInContext('openMoon()',h.ctx);
@@ -95,6 +95,13 @@ test('HUD integrado: iniciar, mostrar paneles, volver a Tierra y restaurar misio
     state.started=true;state.collected=2;
     const restored=createMoonInterface({THREE,scene:new Group,renderer:{},getMission:()=>state,recenter(){}});
     assert.equal(restored.canCollect(),true);
+    assert.equal(await restored.runAction({type:'select_topic',target:'gravity'}),true);
+    assert.equal(restored.getContext().selected_topic,'GRAVEDAD');
+    assert.equal(await restored.runAction({type:'select_topic',target:'invalid'}),false);
+    assert.equal(await restored.runAction({type:'restart_mission'}),false);
+    assert.equal(await hud.runAction({type:'go_home'}),true);
+    assert.equal(returns,2);
+
 });
 function chatHarness(extra={}) {
     const state={bubbles:[]};let spoken=0,actions=0;
@@ -126,4 +133,17 @@ test('permiso de microfono que llega tras salir cierra sus pistas sin activar es
     const pending=h.controller.toggleMic();await permissionRequested;
     h.controller.stop();resolveStream({getTracks:()=>[{stop:()=>stopped++}]});await pending;
     assert.equal(stopped,1);assert.equal(h.state.listening,false);
+});
+
+test('reiniciar Luna limpia muestras persistidas sin modificar la ruta principal',async()=>{
+    const {createMoonProgress}=await moduleAt('moonProgress.js');
+    const store=storage([['iastronaut_operation_helios_v2','principal']]);
+    const p=createMoonProgress(store);p.start();[0,1,2].forEach(id=>p.collect(id));
+    p.reset();
+    const restored=createMoonProgress(store);
+    assert.equal(restored.getState().collected.length,0);
+    assert.equal(restored.getState().started,false);
+    assert.equal(restored.getState().completed,false);
+    assert.equal(store.getItem('iastronaut_operation_helios_v2'),'principal');
+    restored.start();assert.equal(restored.collect(0),true);
 });

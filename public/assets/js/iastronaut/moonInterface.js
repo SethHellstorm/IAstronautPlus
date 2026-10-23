@@ -1,12 +1,15 @@
+import { getMissionAudioId } from './missionAudioCatalog.js';
+import { roundRect } from './canvasUtils.js';
+import { drawMissionLog } from './missionLog.js';
 import { drawSolarRoute } from "./solarRoute.js";
 import { SOLAR_MISSION } from "./missionData.js";
 import { createPanel, createUIState, drawPanelFactory, addBubble } from './uiPanel.js';
 import { makePanel, drawShell, drawWrapped, drawBar, drawButton, drawPrimaryButton, drawDot, pointInRect } from './panelCanvas.js';
-import { HIT_ZONES, MAIN_PANEL_Y, MAIN_PANEL_HEIGHT, MAIN_PANEL_WIDTH, PANEL_LAYOUT_GAP } from './config.js';
+import { MISSION_AUDIO_DIR, HIT_ZONES, MAIN_PANEL_Y, MAIN_PANEL_HEIGHT, MAIN_PANEL_WIDTH, PANEL_LAYOUT_GAP } from './config.js';
 import { createTTSPlayer, createVoiceGuide } from './voice.js';
 import { createMicChatController } from './chat.js';
 
-export function createMoonInterface({ THREE, scene, renderer, getMission, recenter, onReturn = null, onStart = null, navigation = null }) {
+export function createMoonInterface({ THREE, scene, renderer, getMission, recenter, onReturn = null, onStart = null, onRestart = null, navigation = null }) {
     const terminal = createPanel({ THREE, scene });
     const group = terminal.uiGroup;
     group.scale.setScalar(1);
@@ -25,11 +28,21 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     const resume = panel('moon-resume',680,180,1.06,0.28,-2.22,-0.8);
     const panels = [dossier,controls,route,status,resume];
     let started = !!getMission().started, focus = false, tab = 'OBJETIVO', lastCollected = getMission().collected, lastError = '';
+    const scienceTopics = {
+        composition: {label:'COMPOSICI\u00d3N', value:'ROCA Y REGOLITO', detail:'La Luna tiene corteza, manto y un peque\u00f1o n\u00facleo. Su superficie est\u00e1 cubierta de regolito: polvo y fragmentos de roca producidos por impactos.'},
+        temperature: {label:'TEMPERATURA', value:'CONTRASTES EXTREMOS', detail:'Cerca del ecuador, la superficie puede alcanzar unos 127 \u00b0C de d\u00eda y bajar hasta unos -173 \u00b0C de noche. La temperatura depende del lugar y de la luz solar.'},
+        gravity: {label:'GRAVEDAD', value:'1,62 m/s\u00b2', detail:'La gravedad superficial es aproximadamente una sexta parte de la terrestre. Tu masa ser\u00eda la misma, pero pesar\u00edas mucho menos y podr\u00edas saltar m\u00e1s alto.'},
+        curiosity: {label:'CURIOSIDAD', value:'LA MISMA CARA', detail:'La Luna tarda aproximadamente lo mismo en girar sobre su eje que en orbitar la Tierra. Por eso vemos casi siempre la misma cara; la cara lejana tambi\u00e9n recibe luz solar.'},
+        compare: {label:'COMPARAR', value:'0,27 TIERRAS DE DI\u00c1METRO', detail:'La Luna mide unos 3.475 km de di\u00e1metro: algo m\u00e1s de una cuarta parte del terrestre. Es el sat\u00e9lite natural de la Tierra y no tiene una atm\u00f3sfera densa como la nuestra.'}
+    };
+    let logSection = 'main';
+    let selectedTopic = 'composition';
     let hover = '';
     const logs = ['Expedicion lunar preparada.'];
     const tts = createTTSPlayer();
-    const guide = createVoiceGuide({ ttsPlayer: tts });
-    const say = text => { addBubble(state, drawTerminal, text, 'bot', {source:'mission'}); };
+    const guide = createVoiceGuide({ ttsPlayer: tts, localAudioBasePath: MISSION_AUDIO_DIR });
+    let active = false, handlingAction = false;
+    const say = text => { addBubble(state, drawTerminal, text, 'bot', {source:'mission'}); if(active && !handlingAction) void guide.speak(text); };
     const context = () => {
         const m = getMission();
         return { scene_id:'moon', scene_name:'Luna', scene_type:'mision secundaria opcional',
@@ -40,21 +53,65 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
             pending_target:m.collected===3?'':`Recoger ${3-m.collected} muestras restantes`,
             completed_targets:Array.from({length:m.collected},(_,i)=>`Muestra ${i+1}`),
             hint:'Pulsa Iniciar operacion y apunta a los aros azules con el raton o el gatillo.',
-            last_result:logs.at(-1), selected_topic:tab, next_destination:'' };
+            last_result:logs.at(-1), selected_topic:tab==='CIENCIA'?scienceTopics[selectedTopic].label:tab, next_destination:'Tierra (regreso desde la Luna)' };
     };
+    function restart() {
+        if(!onRestart || !getMission().ready) return;
+        mic.stop(); guide.stop();
+        onRestart();
+        started=false;focus=false;lastCollected=0;tab='OBJETIVO';
+        logs.length=0;logs.push('Operacion lunar reiniciada.');
+        say('Operaci\u00f3n reiniciada. Pulsa Iniciar operaci\u00f3n para recoger de nuevo las tres muestras.');
+        refresh();
+    }
     function start() {
         if (!getMission().ready || getMission().error) return;
         if (!started) { started = true; onStart?.(); logs.push('Recoleccion iniciada.'); say('Recoge las tres rocas con aro azul. Puedes volver a los paneles para hablar conmigo.'); }
         focus = true; refresh();
     }
     const mic = createMicChatController({state,drawPanel:drawTerminal,ttsPlayer:tts,voiceGuide:guide,
-        getMissionContext:context, onAssistantAction: action => {
-            if (action?.type==='start_operation' || action?.type==='deploy_probe') start();
-            else if (['show_log','show_objective','select_topic'].includes(action?.type)) {
-                tab=action.type==='show_log'?'BITACORA':action.type==='select_topic'?'CIENCIA':'OBJETIVO'; focus=false; refresh();
-            } else if (action?.type==='repeat_briefing') say(context().objective);
-            // Las acciones de viaje y reinicio principal no se ejecutan en la Luna.
-        }});
+        getMissionContext:context, onAssistantAction:runAction});
+    async function travelTo(index) {
+        if(!navigation || !SOLAR_MISSION[index]) return false;
+        if(!navigation.isUnlocked(index)) {
+            const previous=SOLAR_MISSION[Math.max(0,index-1)];
+            const message=`${SOLAR_MISSION[index].name} sigue bloqueado. Completa primero la operaci\u00f3n de ${previous.name}.`;
+            focus=false;refresh();
+            addBubble(state,drawTerminal,message,'bot',{source:'mission'});
+            const audioId=getMissionAudioId(message);
+            if(audioId) void guide.playLocal(audioId,{interrupt:true,remember:true});
+            return false;
+        }
+        await navigation.travelTo(index);
+        return true;
+    }
+    async function runAction(action) {
+        const type=typeof action==='string'?action:action?.type;
+        const target=action?.target || action?.topic || action?.key;
+        handlingAction=true;
+        try {
+            if(type==='start_operation' || type==='deploy_probe') {start();return true;}
+            if(type==='go_home' || type==='previous_destination') {await onReturn?.();return true;}
+            if(type==='next_destination') {
+                if(navigation) {
+                    const current=navigation.getState().currentIndex;
+                    if(navigation.isUnlocked(current+1)) {await navigation.travelTo(current+1);return true;}
+                }
+                say('Ese destino sigue bloqueado. Vuelve a la Tierra para continuar la ruta principal.');return false;
+            }
+            if(type==='select_topic') {
+                if(!scienceTopics[target]) return false;
+                selectedTopic=target;tab='CIENCIA';focus=false;refresh();return true;
+            }
+            if(type==='show_log' || type==='show_objective') {
+                tab=type==='show_log'?'BITACORA':'OBJETIVO';
+                if(type==='show_log') logSection=target==='optional'?'optional':'main';
+                focus=false;refresh();return true;
+            }
+            if(type==='repeat_briefing' || type==='highlight_target') {say(context().objective);return true;}
+            return false; // Una orden lunar nunca reinicia el progreso principal.
+        } finally {handlingAction=false;}
+    }
     function text(p, value, y, size=28, color='#E8FAFF', lines=5) {
         p.ctx.fillStyle=color; p.ctx.font=`750 ${size}px system-ui, sans-serif`;
         p.ctx.textAlign='left'; p.ctx.textBaseline='top';
@@ -91,17 +148,30 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
             c.fillStyle='#EDF9FF'; c.font='750 27px system-ui, sans-serif';
             drawWrapped(c,body,52,y+74,654,33,lines);
         }
+        if(tab==='OBJETIVO') {
         text(dossier,'MISI\u00d3N SECUNDARIA \u00b7 LUNA',180,23,accent,1);
         text(dossier,'RECOLECCI\u00d3N DE MUESTRAS',225,32,'#FFFFFF',2);
+        }
         if(tab==='OBJETIVO') {
             card(dossier,'OBJETIVO ACTUAL','Recoge tres muestras seleccionando las rocas con aro azul.',320,174);
             drawBar(dossier.ctx,36,548,688,m.collected/3*100,accent,'PROGRESO DE OPERACI\u00d3N');
             text(dossier,complete?'MUESTRAS RECUPERADAS':started?'OPERACI\u00d3N EN CURSO':'LISTA PARA INICIAR',610,23,accent,1);
             text(dossier,'Misi\u00f3n opcional. El progreso principal no cambia.',650,25,'#E8FAFF',2);
+        } else if(tab==='CIENCIA') {
+            text(dossier,'LUNA',174,38,accent,1);
+            text(dossier,'SAT\u00c9LITE NATURAL',220,22,'#A5DDEE',1);
+            Object.entries(scienceTopics).forEach(([key,topic],i)=>{
+                const rect={x:30+(i%2)*356,y:260+Math.floor(i/2)*72,w:i===4?700:338,h:60};
+                drawButton(dossier.ctx,rect,topic.label,key===selectedTopic,accent,false,23,hover===`science:${key}`);
+                dossier.hitZones.push({key:`science:${key}`,rect});
+            });
+            const topic=scienceTopics[selectedTopic];
+            card(dossier,topic.value,topic.detail,486,226,4);
         } else {
-            card(dossier,tab==='CIENCIA'?'CIENCIA LUNAR':'BIT\u00c1CORA',tab==='CIENCIA'
-                ?'El regolito es la capa de polvo y fragmentos que cubre el suelo lunar. Las muestras permiten estudiar la historia de la Luna.'
-                :logs.join(' '),320,370,8);
+            const main=navigation?.getState() || {completed:new Set(['earth']),currentIndex:0};
+            drawMissionLog({ctx:dossier.ctx,state:main,isUnlocked:i=>navigation?navigation.isUnlocked(i):i<=1,
+                section:logSection,moonCount:m.collected,activeMoon:true,hover:hover.startsWith('log:')?hover.slice(4):'',
+                onZone:(key,rect)=>dossier.hitZones.push({key:`log:${key}`,rect})});
         }
         text(controls,'LUNA',96,45,accent,1);
         text(controls,'RECOLECCI\u00d3N DE MUESTRAS',148,23,'#BDEBF7',1);
@@ -109,7 +179,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
             lastError || (!m.ready?'Cargando las muestras...':complete?'Las tres muestras est\u00e1n recuperadas. Puedes volver a la Tierra.':started?'Retoma la exploraci\u00f3n para buscar los aros azules.':'IAstronaut te guiar\u00e1 paso a paso durante la misi\u00f3n.'),196,174);
         drawBar(controls.ctx,36,424,688,m.collected/3*100,accent,'PROGRESO DE OPERACI\u00d3N');
         button(controls,'start',complete?'EXPLORAR LUNA':started?'RETOMAR OPERACI\u00d3N':'INICIAR OPERACI\u00d3N',510,true,!m.ready || !!lastError);
-        button(controls,'repeat','REPETIR INSTRUCCI\u00d3N',660);
+        button(controls,'restart','REPETIR OPERACI\u00d3N',660,false,!onRestart || !m.ready || (!started && m.collected===0));
         if (onReturn) button(controls,'return','VOLVER A LA TIERRA',778);
         else text(controls,'Misi\u00f3n opcional / progreso independiente',790,23);
         const routeState=navigation?.getState() || {current:SOLAR_MISSION[0], currentIndex:0, task:{completed:true}, completed:new Set(['earth']), traveling:false};
@@ -126,7 +196,32 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         c.fillStyle='#FFFFFF';c.font='900 32px system-ui';c.fillText(`${m.collected} / 3`,420,119);
         c.fillStyle='#BDEBF7';c.font='800 20px ui-monospace, monospace';c.fillText('MISI\u00d3N OPCIONAL',420,174);
         drawBar(c,838,155,306,m.collected/3*100,accent,'OPERACI\u00d3N');
-        button(resume,'panels','MOSTRAR PANELES',83);
+        {
+            const {ctx,canvas}=resume;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const hovered = hover === "panels";
+        const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, hovered ? "rgba(30,104,137,0.98)" : "rgba(7,39,62,0.94)");
+        gradient.addColorStop(1, hovered ? "rgba(14,73,104,0.98)" : "rgba(3,20,36,0.94)");
+        ctx.save();
+        ctx.shadowColor = hovered ? "rgba(255,255,255,0.62)" : `${accent}70`;
+        ctx.shadowBlur = hovered ? 28 : 18;
+        ctx.fillStyle = gradient;
+        roundRect(ctx, 8, 8, canvas.width - 16, canvas.height - 16, 28);
+        ctx.fill();
+        ctx.restore();
+        ctx.strokeStyle = hovered ? "#FFFFFF" : accent;
+        ctx.lineWidth = hovered ? 7 : 4;
+        roundRect(ctx, 8, 8, canvas.width - 16, canvas.height - 16, 28);
+        ctx.stroke();
+        ctx.fillStyle = accent;
+        ctx.font = "900 42px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("←  VOLVER A PANELES", canvas.width / 2, canvas.height / 2);
+        ctx.textAlign = "left";
+            resume.hitZones.push({key:'panels',rect:{x:0,y:0,w:canvas.width,h:canvas.height}});
+        }
         terminal.panelMesh.visible=!focus;
         for(const p of panels) {p.mesh.visible=p===resume?focus:!focus;p.texture.needsUpdate=true;}
     }
@@ -147,14 +242,16 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     function clickHit(h) {
         if(!h || !meshes.includes(h.object)) return false;
         const key=keyFor(h);
-        if(key.startsWith('destination:')) {void navigation?.travelTo(Number(key.split(':')[1]));}
+        if(key.startsWith('destination:')) {void travelTo(Number(key.split(':')[1]));}
+        else if(key.startsWith('science:') && scienceTopics[key.slice(8)]) {selectedTopic=key.slice(8);refresh();}
+        else if(key==='log:main' || key==='log:optional') {logSection=key.slice(4);refresh();}
         else if(key==='return') {mic.stop();guide.stop();onReturn?.();}
         else if(key==='talk') void mic.toggleMic();
         else if(key==='recenter') recenter();
         else if(key==='exit') {mic.stop();focus=true;refresh();}
         else if(key==='panels') {focus=false;refresh();}
         else if(key==='start') start();
-        else if(key==='repeat') {say(context().objective);void guide.speak(context().objective);}
+        else if(key==='restart') restart();
         else if(['OBJETIVO','CIENCIA','BITACORA'].includes(key)) {tab=key;refresh();}
         return true;
     }
@@ -164,11 +261,14 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         return !!h;
     }
     function scroll(ray,delta) {const h=hit(ray);if(h?.object!==terminal.panelMesh)return false;state.scrollY=Math.max(0,Math.min(state.scrollMax,state.scrollY+delta));state.autoScroll=false;drawTerminal();return true;}
-    say('Bienvenido a la Luna. Revisa el objetivo, la ciencia y la bitacora. Pulsa Iniciar operacion para recoger tres muestras. Puedes hablar conmigo mediante el microfono.');
+    const welcome='Bienvenido a la Luna, aqu\u00ed recolectaremos muestras para investigaci\u00f3n.';
+    say(welcome);
     refresh();
     window.addEventListener('pagehide',()=>{mic.stop();guide.stop();});
     return {group,refresh,inputContext:{panelMesh:terminal.panelMesh,panelCanvas:terminal.panelCanvas,uiGroup:group,state,drawPanel:drawTerminal},click:ray=>clickHit(hit(ray)),setHover:ray=>hoverHit(hit(ray)),scroll,
         clickHit,hoverHit,getInteractiveMeshes:()=>meshes.filter(m=>m.visible && group.visible),
-        stop:()=>{mic.stop();guide.stop();},canCollect:()=>started,
+        runAction,getContext:context,
+        enter:()=>{active=true;void guide.unlock();void guide.speak(getMission().collected===3?'La misi\u00f3n lunar est\u00e1 completa. Puedes consultar la ciencia o regresar a la Tierra.':started?'Bienvenido de nuevo. Retoma la operaci\u00f3n para recoger las muestras pendientes.':welcome);},
+        stop:()=>{active=false;mic.stop();guide.stop();},canCollect:()=>started,
         onXRStart:()=>mic.onXRSessionStart(),onXREnd:()=>mic.stop()};
 }
