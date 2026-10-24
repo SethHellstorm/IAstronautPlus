@@ -83,6 +83,7 @@ export function createMoonExperience({ THREE, scene, camera, renderer, base, onR
                 }
                 anchor();needsAnchor=false;root.visible=true;
             }
+            hud.update();
         },
         onXRStart(){needsAnchor=true;root.visible=false;drawExit();void hud.onXRStart();},
         onXREnd(){needsAnchor=true;exitBusy=false;drawExit();hud.onXREnd();},

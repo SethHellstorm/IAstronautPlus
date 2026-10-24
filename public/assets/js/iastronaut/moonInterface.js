@@ -42,7 +42,25 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     const tts = createTTSPlayer();
     const guide = createVoiceGuide({ ttsPlayer: tts, localAudioBasePath: MISSION_AUDIO_DIR });
     let active = false, handlingAction = false;
-    const say = text => { addBubble(state, drawTerminal, text, 'bot', {source:'mission'}); if(active && !handlingAction) void guide.speak(text); };
+    const narrate = text => {
+        const audioId = getMissionAudioId(text);
+        return audioId ? guide.playLocal(audioId) : guide.speak(text);
+    };
+    const say = text => { addBubble(state, drawTerminal, text, 'bot', {source:'mission'}); if(active && !handlingAction) void narrate(text); };
+    let idleSince = null, idleReminded = false;
+    function resetIdle() { idleSince = null; idleReminded = false; }
+    function update(now = performance.now()) {
+        const mission = getMission();
+        if (!active || !focus || !started || !mission.ready || mission.error || mission.collected === 3 || document.hidden) {
+            resetIdle();
+            return;
+        }
+        if (idleSince === null) idleSince = now;
+        if (!idleReminded && now - idleSince >= 18000) {
+            idleReminded = true;
+            say('Busca las rocas con aro azul y selecci\u00f3nalas para recoger las muestras pendientes.');
+        }
+    }
     const context = () => {
         const m = getMission();
         return { scene_id:'moon', scene_name:'Luna', scene_type:'mision secundaria opcional',
@@ -57,6 +75,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     };
     function restart() {
         if(!onRestart || !getMission().ready) return;
+        resetIdle();
         mic.stop(); guide.stop();
         onRestart();
         started=false;focus=false;lastCollected=0;tab='OBJETIVO';
@@ -67,7 +86,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     function start() {
         if (!getMission().ready || getMission().error) return;
         if (!started) { started = true; onStart?.(); logs.push('Recoleccion iniciada.'); say('Recoge las tres rocas con aro azul. Puedes volver a los paneles para hablar conmigo.'); }
-        focus = true; refresh();
+        resetIdle(); focus = true; refresh();
     }
     const mic = createMicChatController({state,drawPanel:drawTerminal,ttsPlayer:tts,voiceGuide:guide,
         getMissionContext:context, onAssistantAction:runAction});
@@ -127,6 +146,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         lastError=error;
         const m=getMission(), complete=m.collected===3, accent=complete?'#59F49B':'#3FDCFF';
         if(m.collected!==lastCollected) {
+            resetIdle();
             logs.push(`Muestra ${m.collected} de 3 recuperada.`);
             say(complete?'Mision lunar completada. Las tres muestras estan recuperadas.':`Muestra recuperada. Faltan ${3-m.collected}.`);
             lastCollected=m.collected;
@@ -265,10 +285,10 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     say(welcome);
     refresh();
     window.addEventListener('pagehide',()=>{mic.stop();guide.stop();});
-    return {group,refresh,inputContext:{panelMesh:terminal.panelMesh,panelCanvas:terminal.panelCanvas,uiGroup:group,state,drawPanel:drawTerminal},click:ray=>clickHit(hit(ray)),setHover:ray=>hoverHit(hit(ray)),scroll,
+    return {group,refresh,update,inputContext:{panelMesh:terminal.panelMesh,panelCanvas:terminal.panelCanvas,uiGroup:group,state,drawPanel:drawTerminal},click:ray=>clickHit(hit(ray)),setHover:ray=>hoverHit(hit(ray)),scroll,
         clickHit,hoverHit,getInteractiveMeshes:()=>meshes.filter(m=>m.visible && group.visible),
         runAction,getContext:context,
-        enter:()=>{active=true;void guide.unlock();void guide.speak(getMission().collected===3?'La misi\u00f3n lunar est\u00e1 completa. Puedes consultar la ciencia o regresar a la Tierra.':started?'Bienvenido de nuevo. Retoma la operaci\u00f3n para recoger las muestras pendientes.':welcome);},
-        stop:()=>{active=false;mic.stop();guide.stop();},canCollect:()=>started,
+        enter:()=>{resetIdle();active=true;void guide.unlock();void narrate(getMission().collected===3?'La misi\u00f3n lunar est\u00e1 completa. Puedes consultar la ciencia o regresar a la Tierra.':started?'Bienvenido de nuevo. Retoma la operaci\u00f3n para recoger las muestras pendientes.':welcome);},
+        stop:()=>{resetIdle();active=false;mic.stop();guide.stop();},canCollect:()=>started,
         onXRStart:()=>mic.onXRSessionStart(),onXREnd:()=>mic.stop()};
 }
