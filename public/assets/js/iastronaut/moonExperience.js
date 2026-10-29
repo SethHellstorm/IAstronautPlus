@@ -73,6 +73,7 @@ export function createMoonExperience({ THREE, scene, camera, renderer, base, onR
     drawExit();
     return {
         root,getInputContext:()=>hud.inputContext,enter(){active=true;needsAnchor=true;root.visible=false;drawExit();hud.refresh(error);hud.enter();},
+        stopNarration:()=>hud.stop(),
         leave(){active=false;root.visible=false;hud.stop();},
         update(frame){
             if(!active)return;

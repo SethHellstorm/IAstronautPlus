@@ -390,8 +390,8 @@ function createDesktopHelp(renderer) {
             if (!moon) {
                 const { createMoonExperience } = await import("./moonExperience.js");
                 moon = createMoonExperience({ THREE, scene, camera, renderer, base: APP_BASE,
-                    onReturn: closeMoon, exitVR: exitImmersiveVR,
-                    navigation:{getState:()=>director.getState(),isUnlocked:i=>director.isUnlocked(i),travelTo:async i=>{if(!director.isUnlocked(i))return;closeMoon();await director.travelTo(i);}} });
+                    onReturn: () => leaveMoonFor(0), exitVR: exitImmersiveVR,
+                    navigation:{getState:()=>director.getState(),isUnlocked:i=>director.isUnlocked(i),travelTo:leaveMoonFor} });
             }
             state = director.getState();
             if (state.current.id !== "earth" || state.traveling || !isMoonUnlocked(state)) return;
@@ -426,6 +426,28 @@ function createDesktopHelp(renderer) {
                 await fadeTo(0, 0.62);
                 travelEffect.stop();
             }
+            moonOpening = false;
+        }
+    }
+    async function leaveMoonFor(index) {
+        if (!moonActive || moonOpening || !director.isUnlocked(index)) return false;
+        moonOpening = true;
+        const travelStartedAt = performance.now();
+        try {
+            moon.stopNarration();
+            travelEffect.start();
+            await fadeTo(0.82, 0.44);
+            closeMoon();
+            if (index !== director.getState().currentIndex) {
+                return await director.travelTo(index);
+            }
+            // Returning to Earth does not trigger the director's scene-change callback.
+            const remaining = Math.max(0, 1150 - (performance.now() - travelStartedAt));
+            if (remaining) await new Promise(resolve => setTimeout(resolve, remaining));
+            return true;
+        } finally {
+            await fadeTo(0, 0.62);
+            travelEffect.stop();
             moonOpening = false;
         }
     }
