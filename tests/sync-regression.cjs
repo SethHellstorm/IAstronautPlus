@@ -77,7 +77,17 @@ function bluetooth(env) {
         disconnect(){this.connected=false;device.dispatchEvent({type:'gattserverdisconnected'});},
         async getPrimaryService(){return {getCharacteristic:async uuid=>uuid.endsWith('02')?command:status};}};
     env.ctx.navigator.bluetooth={requestDevice:async()=>device};env.run(read('vest-bluetooth.js'));env.run('ChalecoBluetooth.habilitar()');
-    return {device,status,command,writes,connect:()=>env.elements.get('conectarChaleco').click(),
+    return {device,status,command,writes,connect:async()=>{
+        const original=command.writeValueWithResponse;
+        command.writeValueWithResponse=async bytes=>{
+            const data=JSON.parse(new TextDecoder().decode(bytes));
+            assert.equal(data.type,'allOff');
+            status.value=new TextEncoder().encode('allOff:ok');
+            status.dispatchEvent({type:'characteristicvaluechanged'});
+        };
+        try {await env.elements.get('conectarChaleco').click();}
+        finally {command.writeValueWithResponse=original;}
+    },
         notify(text){status.value=new TextEncoder().encode(text);status.dispatchEvent({type:'characteristicvaluechanged'});}};
 }
 test('Bluetooth exige escritura y respuesta; salir intenta allOff y desconecta',async()=>{
@@ -186,4 +196,23 @@ test('puente de misiones descarta efectos sin autorizacion y envia sin duracione
     env.window.dispatchEvent({type:'pagehide'});
     const count=requests.length;env.run("sendEffect({effect:'frio_neptuno',scene:'neptune'})");assert.equal(requests.length,count);
     assert.equal(JSON.parse(requests.at(-1).opts.body).efecto,'apagar');
+});
+
+
+test('chaleco real: viajar apaga sin desconectar y vibraciones usan protocolo real',async()=>{
+    const env=environment();env.ctx.ControlAcceso={terminado:false};
+    env.ctx.fetch=async()=>response(JSON.parse(read('efectos.json')));
+    const ble=bluetooth(env);ble.device.name='ChalecoVR';await ble.connect();
+    const off=env.run("ChalecoBluetooth.enviarEfecto('apagar',0)");
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(ble.writes.at(-1).type,'allOff');
+    ble.notify('thermal:off,ch=all');ble.notify('vibration:off,ch=all,dur=0');ble.notify('allOff:ok');
+    await off;assert.equal(ble.device.gatt.connected,true);
+    const vibration=env.run("ChalecoBluetooth.enviarEfecto('interaccion',200)");
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(ble.writes.at(-1).type,'vibration');
+    ble.notify('vibration:on,ch=all,dur=200');await vibration;
+    const count=ble.writes.length;
+    await assert.rejects(env.run("ChalecoBluetooth.enviarEfecto('calor_sol',3000)"), /no configurado/);
+    assert.equal(ble.writes.length,count);assert.equal(ble.device.gatt.connected,true);
 });

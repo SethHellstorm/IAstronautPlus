@@ -79,7 +79,7 @@ const ChalecoBluetooth = (() => {
 
         ocupado = true;
         actualizarBotones();
-        estado.textContent = 'Selecciona ChalecoVR-Simulador…';
+        estado.textContent = 'Selecciona ChalecoVR o ChalecoVR-Simulador…';
 
         try {
             dispositivo?.removeEventListener('gattserverdisconnected', alDesconectar);
@@ -117,8 +117,11 @@ const ChalecoBluetooth = (() => {
                 return;
             }
 
+            // No aceptar efectos hasta confirmar el apagado inicial.
+            ocupado = false;
+            await enviarComando({type: 'allOff'}, 'allOff:ok');
             estado.textContent =
-                'Conectado a ' + dispositivo.name + '. Servicio encontrado.';
+                'Conectado a ' + dispositivo.name + '. Apagado inicial confirmado.';
         } catch (error) {
             limpiarComunicacion();
             dispositivo?.gatt?.disconnect();
@@ -189,7 +192,18 @@ const ChalecoBluetooth = (() => {
         if (!Object.hasOwn(perfiles, efecto) || perfiles[efecto].duration !== duration) {
             throw Object.assign(new Error('Duracion de efecto no permitida.'), {noEnviado: true});
         }
-        // effect_sim nunca activa los comandos termicos del firmware del chaleco real.
+        if (efecto === 'apagar') {
+            return enviarComando({type: 'allOff'}, 'allOff:ok');
+        }
+        const simulador = /simulador/i.test(dispositivo?.name || '');
+        if (!simulador) {
+            if (efecto === 'interaccion' || efecto === 'mision_completa') {
+                return enviarComando({type: 'vibration', channel: 'all', action: 'on', duration},
+                    'vibration:on,ch=all,dur=' + duration);
+            }
+            throw Object.assign(new Error('Efecto termico no configurado para el chaleco real: ' + efecto), {noEnviado: true});
+        }
+        // Solo el simulador recibe effect_sim.
         return enviarComando({type: 'effect_sim', effect: efecto, duration},
             'effect_sim:' + efecto + ',dur=' + duration);
     }
@@ -254,6 +268,7 @@ const ChalecoBluetooth = (() => {
                 if (error && !deteniendo) {
                     // Impide reutilizar esta conexión con respuestas tardías.
                     desconectarDispositivo();
+                    estado.textContent = 'ESP32 desconectado: ' + error.message;
                 }
 
                 ocupado = false;

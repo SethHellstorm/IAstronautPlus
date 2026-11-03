@@ -60,7 +60,7 @@ export function createMoonTerrain({ THREE, scene: escena, world: mundoLunar, ren
         textura.anisotropy = Math.min(
           8, renderer.capabilities.getMaxAnisotropy()
         );
-        const geometriaSuelo = new THREE.PlaneGeometry(140, 140, 256, 256);
+        const geometriaSuelo = new THREE.PlaneGeometry(140, 140, 128, 128);
 
         // Orientar la geometría horizontalmente antes de modificar su altura.
         geometriaSuelo.rotateX(-Math.PI / 2);
@@ -132,6 +132,8 @@ export function createMoonTerrain({ THREE, scene: escena, world: mundoLunar, ren
 
         posiciones.needsUpdate = true;
         geometriaSuelo.computeVertexNormals();
+        geometriaSuelo.computeBoundingBox();
+        geometriaSuelo.computeBoundingSphere();
 
         const suelo = new THREE.Mesh(
           geometriaSuelo,
@@ -180,6 +182,8 @@ export function createMoonTerrain({ THREE, scene: escena, world: mundoLunar, ren
             ];
 
             piezas.forEach((pieza, indice) => {
+                pieza.geometry.computeBoundingBox();
+                pieza.geometry.computeBoundingSphere();
                 pieza.castShadow = true;
                 pieza.receiveShadow = true;
             // Conservar la orientación del modelo y liberar cada roca del grupo.

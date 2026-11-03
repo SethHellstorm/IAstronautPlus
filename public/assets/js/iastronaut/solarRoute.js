@@ -1,6 +1,6 @@
 import { SOLAR_MISSION } from "./missionData.js";
 import { drawShell } from "./panelCanvas.js";
-export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, activeMoon = false, t = 0 }) {
+export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, onCorona, activeCorona = false, activeMoon = false, t = 0 }) {
         const { ctx, canvas, texture } = solarMap;
         drawShell(ctx, canvas.width, canvas.height, "RUTA HOLOGRÁFICA", state.current.accent);
         solarMap.hitZones = [];
@@ -41,7 +41,7 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, a
             const x = startX + gap * i;
             const unlocked = director.isUnlocked(i);
             const done = state.completed.has(item.id);
-            const active = !activeMoon && i === state.currentIndex;
+            const active = !activeMoon && !activeCorona && i === state.currentIndex;
             const next = i === nextIndex;
             const hovered = isHovered(solarMap, "destination", i);
             if (next) {
@@ -107,7 +107,7 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, a
             solarMap.hitZones.push({ type: "destination", index: i, circle: { x, y, r: next ? 56 : 45 } });
         }
         const sidequests = [
-            ["LUNA", "", true], ["CORONA", "SOLAR", false],
+            ["LUNA", "", true], ["CORONA", "SOLAR", true],
             ["PLUT\u00d3N", "", false], ["ESTACI\u00d3N", "ESPACIAL", false],
             ["CINTUR\u00d3N", "PRINCIPAL", false], ["EUROPA", "", false],
             ["TIT\u00c1N", "", false], ["COMETA", "", false],
@@ -116,16 +116,19 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, a
         sidequests.forEach(([label, secondLine, ready], i) => {
             const x = startX + gap * i;
             const unlocked = state.completed.has(SOLAR_MISSION[i].id);
-            const enabled = ready && unlocked && !!onMoon && !state.traveling;
-            const selectable = ready && !!onMoon && !state.traveling;
-            const hovered = selectable && isHovered(solarMap, "moon", "");
+            const action = i === 1 ? onCorona : onMoon;
+            const type = i === 1 ? "corona" : "moon";
+            const active = i === 1 ? activeCorona : i === 0 && activeMoon;
+            const enabled = ready && unlocked && !!action && !state.traveling;
+            const selectable = ready && !!action && !state.traveling;
+            const hovered = selectable && isHovered(solarMap, type, "");
             ctx.strokeStyle = unlocked ? "#78E8FF" : "#405865";
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.moveTo(x, y + 65); ctx.lineTo(x, 320); ctx.stroke();
             ctx.fillStyle = enabled ? "#78E8FF" : "#405865";
             ctx.beginPath(); ctx.arc(x, 345, 23, 0, Math.PI * 2); ctx.fill();
-            if (hovered || (activeMoon && i === 0)) {
+            if (hovered || active) {
                 ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 4;
                 ctx.beginPath(); ctx.arc(x, 345, 30, 0, Math.PI * 2); ctx.stroke();
             }
@@ -137,8 +140,8 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, a
             if (secondLine) ctx.fillText(secondLine, x, 404);
             ctx.font = "700 15px ui-monospace, monospace";
             ctx.fillStyle = enabled ? "#65F2A0" : "#93A8B2";
-            ctx.fillText(!ready ? "PR\u00d3XIMAMENTE" : activeMoon && i === 0 ? "ACTUAL" : unlocked ? "DISPONIBLE" : "BLOQUEADA", x, 441);
-            if (selectable) solarMap.hitZones.push({type: "moon", rect: {x: x - 62, y: 315, w: 124, h: 150}});
+            ctx.fillText(!ready ? "PR\u00d3XIMAMENTE" : active ? "ACTUAL" : unlocked ? "DISPONIBLE" : "BLOQUEADA", x, 441);
+            if (selectable) solarMap.hitZones.push({type, rect: {x: x - 62, y: 315, w: 124, h: 150}});
         });
         ctx.textAlign = "left";
         texture.needsUpdate = true;

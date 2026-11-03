@@ -4,7 +4,7 @@ import { createMoonInterface } from './moonInterface.js';
 import { createMoonProgress } from './moonProgress.js';
 import { drawMoonExit } from './moonHud.js';
 
-export function createMoonExperience({ THREE, scene, camera, renderer, base, onReturn, exitVR, navigation = null }) {
+export function createMoonExperience({ THREE, scene, camera, renderer, base, onReturn, exitVR, onHaptic = () => {}, navigation = null }) {
     const root = new THREE.Group();
     root.visible=false;
     scene.add(root);
@@ -39,8 +39,19 @@ export function createMoonExperience({ THREE, scene, camera, renderer, base, onR
         exit.position.set(1.45,-1.05,-3.2).applyQuaternion(viewRotation).add(viewPosition);
         exit.quaternion.copy(viewRotation);
         root.updateMatrixWorld(true);
+        invalidateShadows();
+    }
+    // Lunar geometry and lighting are static between anchoring and sample changes.
+    function invalidateShadows() {
+        world.traverse(object => {
+            if (object.isLight && object.shadow) {
+                object.shadow.autoUpdate = false;
+                object.shadow.needsUpdate = true;
+            }
+        });
     }
     function refreshSamples() {
+        invalidateShadows();
         const collected=new Set(progress.getState().collected);
         for(const sample of samples) {sample.soporte.visible=progress.getState().started && !collected.has(sample.id);sample.aro.visible=sample.soporte.visible;}
     }
@@ -61,6 +72,7 @@ export function createMoonExperience({ THREE, scene, camera, renderer, base, onR
         const sample=hit.object.userData.muestra;
         if(ready && hud.canCollect() && sample && progress.collect(sample.id)) {
             refreshSamples();hud.refresh();
+            onHaptic({effect: progress.getState().completed ? "mision_completa" : "interaccion", scene: "moon"});
         }
         return true; // Suelo y rocas decorativas impiden seleccionar a traves de ellos.
     }

@@ -375,33 +375,44 @@ function createDesktopHelp(renderer) {
     const vrExitControl = createVRExitControl();
     let missionWorld = null;
     let moon = null;
+    const optionalExperiences = new Map();
     let moonActive = false;
     let moonOpening = false;
     let mainSceneSnapshot = null;
-    async function openMoon() {
+    async function openMoon(kind = "moon") {
+        const corona = kind === "corona";
+        const parent = corona ? "sun" : "earth";
         if (moonActive || moonOpening) return;
         let state = director.getState();
         if (state.traveling) return;
-        if (!isMoonUnlocked(state)) {director.announceMoonLocked();return;}
-        if (state.current.id !== "earth") return;
+        if (corona ? !state.completed.has("sun") : !isMoonUnlocked(state)) {
+            if (!corona) director.announceMoonLocked();
+            else addBubble(uiState, drawPanel, "Completa la mision del Sol para explorar la corona solar.", "bot");
+            return;
+        }
+        if (state.current.id !== parent) return;
         moonOpening = true;
         let transitionStarted = false;
         try {
+            moon = optionalExperiences.get(kind);
             if (!moon) {
-                const { createMoonExperience } = await import("./moonExperience.js");
+                const module = await import(corona ? "./coronaExperience.js" : "./moonExperience.js");
+                const createMoonExperience = corona ? module.createCoronaExperience : module.createMoonExperience;
                 moon = createMoonExperience({ THREE, scene, camera, renderer, base: APP_BASE,
-                    onReturn: () => leaveMoonFor(0), exitVR: exitImmersiveVR,
+                    onReturn: () => leaveMoonFor(corona ? 1 : 0), exitVR: exitImmersiveVR,
+                    onHaptic: sendHaptic,
                     navigation:{getState:()=>director.getState(),isUnlocked:i=>director.isUnlocked(i),travelTo:leaveMoonFor} });
+                optionalExperiences.set(kind, moon);
             }
             state = director.getState();
-            if (state.current.id !== "earth" || state.traveling || !isMoonUnlocked(state)) return;
+            if (state.current.id !== parent || state.traveling || !state.completed.has(parent)) return;
             dismissPendingWelcome();
             mic.stop(); voiceGuide.stop();
             const travelStartedAt = performance.now();
             transitionStarted = true;
             travelEffect.start();
             await fadeTo(0.82, 0.44);
-            sendHaptic({effect:"apagar",scene:"earth"});
+            sendHaptic({effect:"apagar",scene:parent});
             const xrObjects = new Set([...Object.values(xr.controllers), ...Object.values(xr.hands), camera, moon.root]);
             mainSceneSnapshot = {
                 background: scene.background, environment: scene.environment,
@@ -508,7 +519,8 @@ function createDesktopHelp(renderer) {
         director,
         getWorldStatus: () => missionWorld?.getStatus?.() || {},
         mainPanelMesh: panelMesh,
-        onMoon: openMoon,
+        onMoon: () => openMoon("moon"),
+        onCorona: () => openMoon("corona"),
     });
     missionWorld = createMissionWorld({ THREE, scene, camera, renderer, director });
     function syncVRExitVisibility() {

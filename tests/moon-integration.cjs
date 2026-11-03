@@ -46,10 +46,10 @@ test('guardado corrupto o no disponible no interrumpe la mision',async()=>{
 });
 function transitionHarness(completed=true) {
     const source=read('threeScene.js');
-    const code=source.slice(source.indexOf('    async function openMoon()'),source.indexOf('    let narrationSequence'));
+    const code=source.slice(source.indexOf('    async function openMoon('),source.indexOf('    let narrationSequence'));
     const main={visible:true},hidden={visible:false},controller={visible:true},hand={visible:true},camera={};
     const moon={root:{visible:false},enter(){this.root.visible=true},leave(){this.root.visible=false}};
-    const ctx=vm.createContext({performance:{now:()=>0},setTimeout:fn=>fn(),fadeTo:async()=>{},travelEffect:{start(){},stop(){}},moon,moonActive:false,moonOpening:false,mainSceneSnapshot:null,
+    const ctx=vm.createContext({performance:{now:()=>0},setTimeout:fn=>fn(),fadeTo:async()=>{},travelEffect:{start(){},stop(){}},optionalExperiences:new Map([["moon",moon],["corona",moon]]),moon,moonActive:false,moonOpening:false,mainSceneSnapshot:null,
         director:{announceMoonLocked(){ctx.lockedNotice=true;},getState:()=>({current:{id:'earth'},traveling:false,completed:new Set(completed?['earth']:[])})},
         isMoonUnlocked:s=>s.completed.has('earth'),dismissPendingWelcome(){},mic:{stop(){}},voiceGuide:{stop(){}},sendHaptic(){},
         xr:{controllers:{controller},hands:{hand}},camera,
@@ -146,4 +146,20 @@ test('reiniciar Luna limpia muestras persistidas sin modificar la ruta principal
     assert.equal(restored.getState().completed,false);
     assert.equal(store.getItem('iastronaut_operation_helios_v2'),'principal');
     restored.start();assert.equal(restored.collect(0),true);
+});
+
+
+test('Corona requiere Sol completo y conserva progreso lunar y principal',async()=>{
+    const {createCoronaProgress,isCoronaUnlocked}=await moduleAt('coronaProgress.js');
+    assert.equal(isCoronaUnlocked({completed:new Set(['earth'])}),false);
+    assert.equal(isCoronaUnlocked({completed:new Set(['sun'])}),true);
+    const store=storage([['iastronaut_sidequest_moon_v1','moon'],['iastronaut_operation_helios_v2','main']]);
+    const p=createCoronaProgress(store);
+    assert.equal(p.collect(0),false);p.start();
+    assert.equal(p.collect(0),true);assert.equal(p.collect(0),false);
+    p.collect(1);p.collect(2);
+    assert.equal(createCoronaProgress(store).getState().completed,true);
+    p.reset();assert.equal(p.getState().collected.length,0);
+    assert.equal(store.getItem('iastronaut_sidequest_moon_v1'),'moon');
+    assert.equal(store.getItem('iastronaut_operation_helios_v2'),'main');
 });
