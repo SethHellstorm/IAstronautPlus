@@ -28,6 +28,8 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
     const resume = panel('moon-resume',680,180,1.06,0.28,-2.22,-0.8);
     const panels = [dossier,controls,route,status,resume];
     let started = !!getMission().started, focus = false, tab = 'OBJETIVO', lastCollected = getMission().collected, lastError = '';
+    const scanResults = ["Corona interior registrada. Observa el halo brillante junto al borde del disco ocultado.", "Filamento coronal registrado. Observa la estructura luminosa que se extiende hacia el espacio.", "Prominencia solar registrada. Observa la estructura rojiza que sobresale del borde."];
+    const completionSummary = "Investigacion completada. Registraste la corona interior, un filamento coronal y una prominencia solar. Puedes revisar los resultados o volver al Sol.";
     const scienceTopics = {
         composition:{label:'COMPOSICION',value:'PLASMA',detail:'La corona es la atmosfera exterior del Sol. En este prototipo observamos tres regiones y registramos datos.'},
         temperature:{label:'TEMPERATURA',value:'OBSERVACION',detail:'El escaneo representa una medicion remota. Los colores del prototipo no son un termometro.'},
@@ -42,10 +44,10 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
     const tts = createTTSPlayer();
     const guide = createVoiceGuide({ ttsPlayer: tts, localAudioBasePath: MISSION_AUDIO_DIR });
     let active = false, handlingAction = false;
-    const narrate = text => {
-        return guide.speak(text); // Prototype: dedicated recordings are not available yet.
+    const narrate = (text, options = {}) => {
+        return guide.speak(text, options); // Recordings can be connected once supplied.
     };
-    const say = text => { addBubble(state, drawTerminal, text, 'bot', {source:'mission'}); if(active && !handlingAction) void narrate(text); };
+    const say = (text, options) => { addBubble(state, drawTerminal, text, 'bot', {source:'mission'}); if(active && !handlingAction) void narrate(text, options); };
     let idleSince = null, idleReminded = false;
     function resetIdle() { idleSince = null; idleReminded = false; }
     function update(now = performance.now()) {
@@ -68,7 +70,7 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
             operation_complete:m.collected===3, operation_progress:Math.round(m.collected/3*100),
             operation_briefing:'Actividad independiente. No desbloquea planetas ni modifica la ruta principal.',
             pending_target:m.collected===3?'':`Escanear ${3-m.collected} registros restantes`,
-            completed_targets:Array.from({length:m.collected},(_,i)=>`Registro ${i+1}`),
+            completed_targets:(m.collectedIds || []).map(id=>scanResults[id]),
             hint:'Pulsa Iniciar operacion y apunta a los aros dorados con el raton o el gatillo.',
             last_result:logs.at(-1), selected_topic:tab==='CIENCIA'?scienceTopics[selectedTopic].label:tab, next_destination:'Sol (regreso desde la corona solar)' };
     };
@@ -146,8 +148,9 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
         const m=getMission(), complete=m.collected===3, accent=complete?'#59F49B':'#FFCF72';
         if(m.collected!==lastCollected) {
             resetIdle();
-            logs.push(`Registro ${m.collected} de 3 recuperada.`);
-            say(complete?'Mision de la corona completada. Los tres registros estan registrados.':`Registro obtenido. Faltan ${3-m.collected}.`);
+            const result = scanResults[m.collectedIds?.at(-1)];
+            if (result) {logs.push(result);say(result);}
+            if (complete) say(completionSummary, {interrupt:false});
             lastCollected=m.collected;
             if(complete) focus=false;
         }
@@ -172,7 +175,7 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
         text(dossier,'ESCANEO DE REGISTROS',225,32,'#FFFFFF',2);
         }
         if(tab==='OBJETIVO') {
-            card(dossier,'OBJETIVO ACTUAL','Escanea tres regiones seleccionando las regiones con aro dorado.',320,174);
+            card(dossier,complete?'RESULTADOS':'OBJETIVO ACTUAL',complete?completionSummary:'Escanea la corona interior, el filamento coronal y la prominencia. Selecciona sus aros dorados.',320,174);
             drawBar(dossier.ctx,36,548,688,m.collected/3*100,accent,'PROGRESO DE OPERACI\u00d3N');
             text(dossier,complete?'REGISTROS RECUPERADAS':started?'OPERACI\u00d3N EN CURSO':'LISTA PARA INICIAR',610,23,accent,1);
             text(dossier,'Misi\u00f3n opcional. El progreso principal no cambia.',650,25,'#E8FAFF',2);
@@ -195,7 +198,7 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
         text(controls,'CORONA SOLAR',96,45,accent,1);
         text(controls,'ESCANEO DE REGISTROS',148,23,'#BDEBF7',1);
         card(controls,complete?'OPERACI\u00d3N COMPLETA':started?'OPERACI\u00d3N EN PAUSA':'SIGUIENTE PASO',
-            lastError || (!m.ready?'Cargando los registros...':complete?'Los tres registros est\u00e1n registrados. Puedes volver al Sol.':started?'Retoma la exploraci\u00f3n para buscar los aros dorados.':'IAstronaut te guiar\u00e1 paso a paso durante la misi\u00f3n.'),196,174);
+            lastError || (!m.ready?'Cargando los registros...':complete?completionSummary:started?'Retoma la exploraci\u00f3n para buscar los aros dorados.':'IAstronaut te guiar\u00e1 paso a paso durante la misi\u00f3n.'),196,174);
         drawBar(controls.ctx,36,424,688,m.collected/3*100,accent,'PROGRESO DE OPERACI\u00d3N');
         button(controls,'start',complete?'EXPLORAR CORONA SOLAR':started?'RETOMAR OPERACI\u00d3N':'INICIAR OPERACI\u00d3N',510,true,!m.ready || !!lastError);
         button(controls,'restart','REPETIR OPERACI\u00d3N',660,false,!onRestart || !m.ready || (!started && m.collected===0));

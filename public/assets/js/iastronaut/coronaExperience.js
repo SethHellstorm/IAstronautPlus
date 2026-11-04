@@ -4,7 +4,7 @@ import { createCoronaInterface } from './coronaInterface.js';
 import { createCoronaProgress } from './coronaProgress.js';
 import { drawMoonExit } from './moonHud.js';
 
-export function createCoronaExperience({ THREE, scene, camera, renderer, base, onReturn, exitVR, navigation = null }) {
+export function createCoronaExperience({ THREE, scene, camera, renderer, base, onReturn, exitVR, onHaptic = () => {}, navigation = null }) {
     const root = new THREE.Group();
     root.visible=false;
     scene.add(root);
@@ -15,7 +15,7 @@ export function createCoronaExperience({ THREE, scene, camera, renderer, base, o
     let ready=false,error='',active=false,needsAnchor=true;
     const viewPosition=new THREE.Vector3(),viewRotation=new THREE.Quaternion();
     const hud=createCoronaInterface({THREE,scene:root,renderer,
-        navigation, getMission:()=>({ready,error,started:progress.getState().started,collected:progress.getState().collected.length}),
+        navigation, getMission:()=>({ready,error,started:progress.getState().started,collected:progress.getState().collected.length,collectedIds:progress.getState().collected}),
         recenter:()=>anchor(false),onReturn,onRestart:()=>{progress.reset();refreshSamples();},onStart:()=>{progress.start();refreshSamples();}});
     const canvas=document.createElement('canvas');canvas.width=640;canvas.height=256;
     const ctx=canvas.getContext('2d');
@@ -72,6 +72,7 @@ export function createCoronaExperience({ THREE, scene, camera, renderer, base, o
         const sample=hit.object.userData.muestra;
         if(ready && hud.canCollect() && sample && progress.collect(sample.id)) {
             refreshSamples();hud.refresh();
+            onHaptic({effect:progress.getState().completed?"mision_completa":"interaccion",scene:"corona"});
         }
         return true; // Suelo y rocas decorativas impiden seleccionar a traves de ellos.
     }
