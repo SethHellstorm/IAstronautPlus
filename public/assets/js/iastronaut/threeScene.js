@@ -382,36 +382,42 @@ function createDesktopHelp(renderer) {
     async function openMoon(kind = "moon") {
         const corona = kind === "corona";
         const parent = corona ? "sun" : "earth";
-        if (moonActive || moonOpening) return;
+        if (moonOpening || (moonActive && moon === optionalExperiences.get(kind))) return;
         let state = director.getState();
         if (state.traveling) return;
         if (corona ? !state.completed.has("sun") : !isMoonUnlocked(state)) {
             if (!corona) director.announceMoonLocked();
-            else addBubble(uiState, drawPanel, "Completa la mision del Sol para explorar la corona solar.", "bot");
+            else {
+                dismissPendingWelcome();
+                addBubble(uiState, drawPanel, "Completa la mision del Sol para explorar la corona solar.", "bot");
+                void voiceGuide.playLocal("corona_locked", {interrupt:true, remember:true});
+            }
             return;
         }
-        if (state.current.id !== parent) return;
         moonOpening = true;
         let transitionStarted = false;
         try {
-            moon = optionalExperiences.get(kind);
-            if (!moon) {
+            let destination = optionalExperiences.get(kind);
+            if (!destination) {
                 const module = await import(corona ? "./coronaExperience.js" : "./moonExperience.js");
                 const createMoonExperience = corona ? module.createCoronaExperience : module.createMoonExperience;
-                moon = createMoonExperience({ THREE, scene, camera, renderer, base: APP_BASE,
+                destination = createMoonExperience({ THREE, scene, camera, renderer, base: APP_BASE,
                     onReturn: () => leaveMoonFor(corona ? 1 : 0), exitVR: exitImmersiveVR,
                     onHaptic: sendHaptic,
-                    navigation:{getState:()=>director.getState(),isUnlocked:i=>director.isUnlocked(i),travelTo:leaveMoonFor} });
-                optionalExperiences.set(kind, moon);
+                    navigation:{getState:()=>director.getState(),isUnlocked:i=>director.isUnlocked(i),travelTo:leaveMoonFor,travelOptional:openMoon} });
+                optionalExperiences.set(kind, destination);
             }
             state = director.getState();
-            if (state.current.id !== parent || state.traveling || !state.completed.has(parent)) return;
+            if (state.traveling || !state.completed.has(parent)) return;
             dismissPendingWelcome();
             mic.stop(); voiceGuide.stop();
+            if (moonActive) moon.stopNarration();
             const travelStartedAt = performance.now();
             transitionStarted = true;
             travelEffect.start();
             await fadeTo(0.82, 0.44);
+            if (moonActive) closeMoon();
+            moon = destination;
             sendHaptic({effect:"apagar",scene:parent});
             const xrObjects = new Set([...Object.values(xr.controllers), ...Object.values(xr.hands), camera, moon.root]);
             mainSceneSnapshot = {

@@ -115,6 +115,7 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, o
         ];
         sidequests.forEach(([label, secondLine, ready], i) => {
             const x = startX + gap * i;
+            const accent = i === 0 ? "#C4C7CC" : "#78E8FF";
             const unlocked = state.completed.has(SOLAR_MISSION[i].id);
             const action = i === 1 ? onCorona : onMoon;
             const type = i === 1 ? "corona" : "moon";
@@ -122,15 +123,21 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, o
             const enabled = ready && unlocked && !!action && !state.traveling;
             const selectable = ready && !!action && !state.traveling;
             const hovered = selectable && isHovered(solarMap, type, "");
-            ctx.strokeStyle = unlocked ? "#78E8FF" : "#405865";
+            ctx.strokeStyle = unlocked ? accent : "#405865";
             ctx.lineWidth = 3;
             ctx.beginPath();
             ctx.moveTo(x, y + 65); ctx.lineTo(x, 320); ctx.stroke();
-            ctx.fillStyle = enabled ? "#78E8FF" : "#405865";
+            ctx.fillStyle = enabled ? accent : "#405865";
             ctx.beginPath(); ctx.arc(x, 345, 23, 0, Math.PI * 2); ctx.fill();
             if (hovered || active) {
-                ctx.strokeStyle = "#FFFFFF"; ctx.lineWidth = 4;
-                ctx.beginPath(); ctx.arc(x, 345, 30, 0, Math.PI * 2); ctx.stroke();
+                ctx.save();
+                ctx.shadowColor = hovered ? "#FFFFFF" : accent;
+                ctx.shadowBlur = hovered ? 30 : 20;
+                ctx.strokeStyle = hovered ? "#FFFFFF" : accent;
+                ctx.lineWidth = 4;
+                const radius = active ? 30 + Math.sin(t * 2.3) * 2 : 30;
+                ctx.beginPath(); ctx.arc(x, 345, radius, 0, Math.PI * 2); ctx.stroke();
+                ctx.restore();
             }
             ctx.textAlign = "center";
             ctx.textBaseline = "top";

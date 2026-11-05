@@ -1,6 +1,6 @@
 # Grabaciones de la corona solar
 
-Guardar en `public/assets/audio/iastronaut/`. Pendientes de grabar y conectar; actualmente se usa voz generada.
+Guardar en `public/assets/audio/iastronaut/`. Las 11 grabaciones estan conectadas. El resumen final se reproduce despues del resultado del ultimo escaneo.
 
 | Archivo | Texto |
 |---|---|

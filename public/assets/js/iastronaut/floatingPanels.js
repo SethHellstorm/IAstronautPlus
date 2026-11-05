@@ -408,13 +408,11 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         else if (zone.type === "corona") {
             if (state.traveling) return false;
             if (!state.completed.has("sun")) {await onCorona?.();return true;}
-            if (state.current.id !== "sun") await director.travelTo(1);
             await onCorona?.();
         }
         else if (zone.type === "moon") {
             if (state.traveling) return false;
             if (!state.completed.has("earth")) {await onMoon?.();return true;}
-            if (state.current.id !== "earth") await director.travelTo(0);
             await onMoon?.();
         }
         else if (zone.type === "restart")

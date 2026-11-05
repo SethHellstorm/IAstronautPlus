@@ -49,7 +49,19 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     const say = text => { addBubble(state, drawTerminal, text, 'bot', {source:'mission'}); if(active && !handlingAction) void narrate(text); };
     let idleSince = null, idleReminded = false;
     function resetIdle() { idleSince = null; idleReminded = false; }
+    let lastRouteDraw = -Infinity;
+    function drawRoute(now = performance.now()) {
+        const routeState=navigation?.getState() || {current:SOLAR_MISSION[0], currentIndex:0, task:{completed:true}, completed:new Set(['earth']), traveling:false};
+        drawSolarRoute({solarMap:route, state:routeState,
+            director:{isUnlocked:i=>navigation ? navigation.isUnlocked(i) : i<=1},
+            isHovered:(_p,type,index='')=>hover===`${type}:${index}`, onMoon:true, onCorona:!!navigation?.travelOptional, activeMoon:true, t:now / 1000});
+        lastRouteDraw = now;
+    }
     function update(now = performance.now()) {
+        // Match the main route cadence without redrawing the other panels.
+        if (active && !focus && group.visible && route.mesh.visible && !document.hidden && now - lastRouteDraw >= 250) {
+            drawRoute(now);
+        }
         const mission = getMission();
         if (!active || !focus || !started || !mission.ready || mission.error || mission.collected === 3 || document.hidden) {
             resetIdle();
@@ -202,10 +214,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         button(controls,'restart','REPETIR OPERACI\u00d3N',660,false,!onRestart || !m.ready || (!started && m.collected===0));
         if (onReturn) button(controls,'return','VOLVER A LA TIERRA',778);
         else text(controls,'Misi\u00f3n opcional / progreso independiente',790,23);
-        const routeState=navigation?.getState() || {current:SOLAR_MISSION[0], currentIndex:0, task:{completed:true}, completed:new Set(['earth']), traveling:false};
-        drawSolarRoute({solarMap:route, state:routeState,
-            director:{isUnlocked:i=>navigation ? navigation.isUnlocked(i) : i<=1},
-            isHovered:(_p,type,index='')=>hover===`${type}:${index}`, onMoon:true, activeMoon:true});
+        drawRoute();
         text(status,'DESTINO',86,22,accent,1);
         text(status,'LUNA',119,32,'#FFFFFF',1);
         text(status,complete?'MUESTRAS RECUPERADAS':started?'RECOLECCI\u00d3N EN CURSO':'LISTA PARA INICIAR',174,19,'#BDEBF7',1);
@@ -257,12 +266,13 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         const p=panels.find(p=>p.mesh===h.object);
         const point=p?{x:h.uv.x*p.canvas.width,y:(1-h.uv.y)*p.canvas.height}:null;
         const zone=p?.hitZones.find(z=>z.rect?pointInRect(point,z.rect):Math.hypot(point.x-z.circle.x,point.y-z.circle.y)<=z.circle.r);
-        return zone?.key || (zone?.type==='destination'?`destination:${zone.index}`:zone?.type==='moon'?'moon:':'');
+        return zone?.key || (zone?.type==='destination'?`destination:${zone.index}`:['moon','corona'].includes(zone?.type)?`${zone.type}:`:'');
     }
     function clickHit(h) {
         if(!h || !meshes.includes(h.object)) return false;
         const key=keyFor(h);
         if(key.startsWith('destination:')) {void travelTo(Number(key.split(':')[1]));}
+        else if(key==='moon:' || key==='corona:') {void navigation?.travelOptional?.(key.slice(0,-1));}
         else if(key.startsWith('science:') && scienceTopics[key.slice(8)]) {selectedTopic=key.slice(8);refresh();}
         else if(key==='log:main' || key==='log:optional') {logSection=key.slice(4);refresh();}
         else if(key==='return') {mic.stop();guide.stop();onReturn?.();}

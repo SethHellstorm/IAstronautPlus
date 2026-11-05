@@ -16,15 +16,10 @@ if (in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true)
     && ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https') {
     $_SERVER['HTTPS'] = 'on';
 }
-// Protege la experiencia y sus acciones (incluido chat); los endpoints sync tienen su propio control.
-if ($path === '/' || $path === '/index.php' || str_starts_with($path, '/actions/')) {
-    require_once $root . '/app/sync/funciones.php';
-    require_once $root . '/app/sync/acceso.php';
-    exigirAccesoSync();
-    if ($path === '/' || $path === '/index.php') header('Content-Type: text/html; charset=utf-8');
-    // No retener el bloqueo de sync durante una respuesta del chat.
-    $pdo = conexionAccesoSync();
-    $pdo->query("SELECT RELEASE_LOCK(SHA2(CONCAT('sync_', DATABASE()),256))");
+// La experiencia y el chat son publicos. Las API de /api/sync/
+// conservan su autenticacion propia para vincular y controlar el chaleco.
+if ($path === '/' || $path === '/index.php') {
+    header('Content-Type: text/html; charset=utf-8');
 }
 if (pathinfo($file, PATHINFO_EXTENSION) === 'php') {
     $_SERVER['SCRIPT_NAME'] = $path === '/' ? '/index.php' : $path;

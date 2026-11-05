@@ -1,4 +1,16 @@
 const AUDIO_ID_BY_TEXT = Object.freeze({
+    "Bienvenido a la corona solar, aqu\u00ed obtendremos registros para investigaci\u00f3n.": "corona_welcome",
+    "Escanea las tres regiones con aro dorado. Puedes volver a los paneles para hablar conmigo.": "corona_start",
+    "Operaci\u00f3n reiniciada. Pulsa Iniciar operaci\u00f3n para escanear de nuevo los tres registros.": "corona_restart",
+    "Busca las regiones con aro dorado y selecci\u00f3nalas para escanear los registros pendientes.": "corona_idle",
+    "Corona interior registrada. Observa el halo brillante junto al borde del disco ocultado.": "corona_inner",
+    "Filamento coronal registrado. Observa la estructura luminosa que se extiende hacia el espacio.": "corona_filament",
+    "Prominencia solar registrada. Observa la estructura rojiza que sobresale del borde.": "corona_prominence",
+    "Investigacion completada. Registraste la corona interior, un filamento coronal y una prominencia solar. Puedes revisar los resultados o volver al Sol.": "corona_complete",
+    "Bienvenido de nuevo. Retoma la operaci\u00f3n para escanear los registros pendientes.": "corona_resume",
+    "La misi\u00f3n de la corona est\u00e1 completa. Puedes consultar la ciencia o regresar al Sol.": "corona_already_complete",
+    "Completa la mision del Sol para explorar la corona solar.": "corona_locked",
+
     "Bienvenido de nuevo. Retoma la operaci\u00f3n para recoger las muestras pendientes.": "moon_resume",
     "La misi\u00f3n lunar est\u00e1 completa. Puedes consultar la ciencia o regresar a la Tierra.": "moon_already_complete",
     "Operaci\u00f3n reiniciada. Pulsa Iniciar operaci\u00f3n para recoger de nuevo las tres muestras.": "moon_restart",

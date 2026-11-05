@@ -45,12 +45,25 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
     const guide = createVoiceGuide({ ttsPlayer: tts, localAudioBasePath: MISSION_AUDIO_DIR });
     let active = false, handlingAction = false;
     const narrate = (text, options = {}) => {
-        return guide.speak(text, options); // Recordings can be connected once supplied.
+        const audioId = getMissionAudioId(text);
+        return audioId ? guide.playLocal(audioId, options) : guide.speak(text, options);
     };
     const say = (text, options) => { addBubble(state, drawTerminal, text, 'bot', {source:'mission'}); if(active && !handlingAction) void narrate(text, options); };
     let idleSince = null, idleReminded = false;
     function resetIdle() { idleSince = null; idleReminded = false; }
+    let lastRouteDraw = -Infinity;
+    function drawRoute(now = performance.now()) {
+        const routeState=navigation?.getState() || {current:SOLAR_MISSION[0], currentIndex:0, task:{completed:true}, completed:new Set(['earth']), traveling:false};
+        drawSolarRoute({solarMap:route, state:routeState,
+            director:{isUnlocked:i=>navigation ? navigation.isUnlocked(i) : i<=1},
+            isHovered:(_p,type,index='')=>hover===`${type}:${index}`, onCorona:true, onMoon:!!navigation?.travelOptional, activeCorona:true, t:now / 1000});
+        lastRouteDraw = now;
+    }
     function update(now = performance.now()) {
+        // Match the main route cadence without redrawing the other panels.
+        if (active && !focus && group.visible && route.mesh.visible && !document.hidden && now - lastRouteDraw >= 250) {
+            drawRoute(now);
+        }
         const mission = getMission();
         if (!active || !focus || !started || !mission.ready || mission.error || mission.collected === 3 || document.hidden) {
             resetIdle();
@@ -204,10 +217,7 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
         button(controls,'restart','REPETIR OPERACI\u00d3N',660,false,!onRestart || !m.ready || (!started && m.collected===0));
         if (onReturn) button(controls,'return','VOLVER AL SOL',778);
         else text(controls,'Misi\u00f3n opcional / progreso independiente',790,23);
-        const routeState=navigation?.getState() || {current:SOLAR_MISSION[0], currentIndex:0, task:{completed:true}, completed:new Set(['earth']), traveling:false};
-        drawSolarRoute({solarMap:route, state:routeState,
-            director:{isUnlocked:i=>navigation ? navigation.isUnlocked(i) : i<=1},
-            isHovered:(_p,type,index='')=>hover===`${type}:${index}`, onCorona:true, activeCorona:true});
+        drawRoute();
         text(status,'DESTINO',86,22,accent,1);
         text(status,'CORONA SOLAR',119,32,'#FFFFFF',1);
         text(status,complete?'REGISTROS RECUPERADAS':started?'ESCANEO EN CURSO':'LISTA PARA INICIAR',174,19,'#BDEBF7',1);
@@ -259,12 +269,13 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
         const p=panels.find(p=>p.mesh===h.object);
         const point=p?{x:h.uv.x*p.canvas.width,y:(1-h.uv.y)*p.canvas.height}:null;
         const zone=p?.hitZones.find(z=>z.rect?pointInRect(point,z.rect):Math.hypot(point.x-z.circle.x,point.y-z.circle.y)<=z.circle.r);
-        return zone?.key || (zone?.type==='destination'?`destination:${zone.index}`:zone?.type==='moon'?'moon:':'');
+        return zone?.key || (zone?.type==='destination'?`destination:${zone.index}`:['moon','corona'].includes(zone?.type)?`${zone.type}:`:'');
     }
     function clickHit(h) {
         if(!h || !meshes.includes(h.object)) return false;
         const key=keyFor(h);
         if(key.startsWith('destination:')) {void travelTo(Number(key.split(':')[1]));}
+        else if(key==='moon:' || key==='corona:') {void navigation?.travelOptional?.(key.slice(0,-1));}
         else if(key.startsWith('science:') && scienceTopics[key.slice(8)]) {selectedTopic=key.slice(8);refresh();}
         else if(key==='log:main' || key==='log:optional') {logSection=key.slice(4);refresh();}
         else if(key==='return') {mic.stop();guide.stop();onReturn?.();}

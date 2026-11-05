@@ -163,3 +163,27 @@ test('Corona requiere Sol completo y conserva progreso lunar y principal',async(
     assert.equal(store.getItem('iastronaut_sidequest_moon_v1'),'moon');
     assert.equal(store.getItem('iastronaut_operation_helios_v2'),'main');
 });
+
+
+test('viaje directo desde Marte a Luna y Corona restaura la escena original', async()=>{
+    const h=transitionHarness();
+    h.ctx.director.getState=()=>({current:{id:'mars'},currentIndex:4,traveling:false,completed:new Set(['earth','sun'])});
+    h.moon.stopNarration=()=>{};
+    const corona={root:{visible:false},enter(){this.root.visible=true},leave(){this.root.visible=false},stopNarration(){}};
+    h.ctx.optionalExperiences.set('corona',corona);
+    h.ctx.scene.children.push(corona.root);
+    await vm.runInContext('openMoon()',h.ctx);
+    assert.equal(h.moon.root.visible,true);
+    await vm.runInContext('openMoon("corona")',h.ctx);
+    assert.equal(h.moon.root.visible,false);
+    assert.equal(corona.root.visible,true);
+    assert.equal(h.main.visible,false);
+    await vm.runInContext('openMoon("moon")',h.ctx);
+    assert.equal(corona.root.visible,false);
+    assert.equal(h.moon.root.visible,true);
+    vm.runInContext('closeMoon()',h.ctx);
+    assert.equal(h.main.visible,true);
+    assert.equal(h.hidden.visible,false);
+    assert.equal(h.ctx.scene.background,'stars');
+    assert.equal(h.ctx.director.getState().current.id,'mars');
+});

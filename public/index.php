@@ -18,6 +18,7 @@ require __DIR__ . "/../app/bootstrap.php";
     window.APP_BASE = "<?= e(app_base_path()) ?>";
   </script>
   <canvas id="renderCanvas"></canvas>
+  <a href="<?= e(app_base_path()) ?>/sync/acceso.html" style="position:fixed;top:12px;right:12px;z-index:20;padding:10px 14px;border:1px solid #35dff2;border-radius:8px;background:#071222e8;color:#e8faff;font:600 14px system-ui;text-decoration:none">Sincronizar chaleco</a>
 
   
   <script type="importmap">

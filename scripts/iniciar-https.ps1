@@ -8,7 +8,7 @@ $server = Start-Process -FilePath $php -WorkingDirectory $projectRoot -ArgumentL
 try {
     Start-Sleep -Seconds 1
     if ($server.HasExited) { throw 'No se pudo iniciar PHP.' }
-    Write-Host 'Abre la URL HTTPS que aparece abajo, agregando /sync/acceso.html. Ctrl+C detiene la prueba.'
+    Write-Host 'Abre la URL HTTPS para la aplicacion. Para vincular el chaleco entra a /sync/acceso.html. Ctrl+C detiene la prueba.'
     & $tunnel tunnel --url http://127.0.0.1:8081 --no-autoupdate
 } finally {
     if (!$server.HasExited) { Stop-Process -Id $server.Id }

@@ -50,6 +50,7 @@
 </head>
 
 <body>
+    <a id="volver" href="../index.php">&larr; Regresar</a>
     <h1>Acceso a sincronización</h1>
 
     <form id="formulario" hidden>
@@ -75,6 +76,15 @@
     </section>
 
     <script>
+        document.getElementById('volver').addEventListener('click', (evento) => {
+            // Sin una pagina anterior de la aplicacion, usar el enlace de inicio.
+            if (document.referrer && window.history.length > 1 &&
+                new URL(document.referrer).origin === window.location.origin) {
+                evento.preventDefault();
+                window.history.back();
+            }
+        });
+
         const formulario = document.getElementById('formulario');
         const entrada = document.getElementById('password');
         const boton = document.getElementById('entrar');
