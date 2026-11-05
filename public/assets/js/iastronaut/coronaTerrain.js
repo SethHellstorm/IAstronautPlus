@@ -86,7 +86,32 @@ export function createCoronaTerrain({THREE,world, samples, objects, onChange}) {
         const ring=new THREE.Mesh(new THREE.RingGeometry(.65,.72,32),new THREE.MeshBasicMaterial({color:0xffcf72,side:THREE.DoubleSide}));
         ring.position.set(x,y,z);world.add(ring);
         target.name = ['Corona interior','Filamento coronal','Prominencia solar'][id];
+        // Static labels share the target's visibility and require no per-frame redraw.
+        const canvas = document.createElement('canvas');
+        canvas.width = 768; canvas.height = 144;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = 'rgba(5,17,30,0.94)';
+        ctx.fillRect(3,3,762,138);
+        ctx.strokeStyle = '#FFCF72'; ctx.lineWidth = 5;
+        ctx.strokeRect(3,3,762,138);
+        ctx.fillStyle = '#FFF1D0';
+        ctx.font = '700 42px system-ui, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(target.name.toUpperCase(),384,72);
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.minFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
+        const label = new THREE.Sprite(new THREE.SpriteMaterial({
+            map:texture, transparent:true, depthWrite:false, toneMapped:false
+        }));
+        label.name = `Letrero: ${target.name}`;
+        label.position.set(0,1.35,0.1);
+        label.scale.set(6.4,1.2,1);
+        support.add(label);
         const sample={id,soporte:support,aro:ring};target.userData.muestra=sample;
+        label.userData.muestra=sample;
+        objects.push(label);
         samples.push(sample);objects.push(target,ring);ring.userData.muestra=sample;
     });
     onChange();
