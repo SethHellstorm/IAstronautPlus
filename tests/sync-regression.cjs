@@ -149,29 +149,33 @@ test('efectos rechazan duraciones fuera del perfil antes de escribir Bluetooth',
     const env=environment();env.ctx.ControlAcceso={terminado:false};
     env.ctx.fetch=async()=>response(JSON.parse(read('efectos.json')));
     const ble=bluetooth(env);await ble.connect();
-    await assert.rejects(env.run("ChalecoBluetooth.enviarEfecto('calor_sol',60000)"), /Duracion/);
+    await assert.rejects(env.run("ChalecoBluetooth.enviarEfecto('interaccion',60000)"), /Duracion/);
     assert.equal(ble.writes.length,0);
-    const send=env.run("ChalecoBluetooth.enviarEfecto('calor_sol',3000)");
+    const send=env.run("ChalecoBluetooth.enviarEfecto('interaccion',200)");
     for(let i=0;i<5;i++)await Promise.resolve();
-    assert.equal(ble.writes[0].duration,3000);assert.equal(ble.writes[0].type,'effect_sim');
-    ble.notify('effect_sim:calor_sol,dur=3000');await send;
+    assert.equal(ble.writes[0].duration,200);assert.equal(ble.writes[0].type,'effect_sim');
+    ble.notify('effect_sim:interaccion,dur=200');await send;
 });
-test('misiones emiten pulsos y entradas termicas una vez por visita', async()=>{
+test('misiones conservan vibraciones sin activar temperatura', async()=>{
     const folder=path.join(root,'public/assets/js/iastronaut');
     const url=text=>'data:text/javascript;base64,'+Buffer.from(text).toString('base64');
     let source=fs.readFileSync(path.join(folder,'missionDirector.js'),'utf8');
     for(const name of ['missionData.js','missionOperations.js','missionMath.js']) source=source.replace('./'+name,url(fs.readFileSync(path.join(folder,name),'utf8')));
     global.localStorage={getItem:()=>JSON.stringify({visited:['earth','sun','mercury','neptune']}),setItem(){}};
     try {
-        const {createMissionDirector}=await import(url(source));const effects=[];
-        const d=createMissionDirector({onSceneChange:async()=>({}),onHaptic:e=>effects.push(e)});
+        const {createMissionDirector}=await import(url(source));const effects=[], messages=[];
+        const d=createMissionDirector({onSceneChange:async()=>({}),onHaptic:e=>effects.push(e),onMissionMessage:(text,meta)=>messages.push({text,...meta})});
         await d.initialize();
         d.interactTarget('earth-nav');d.interactTarget('earth-comms');d.interactTarget('earth-power');
         assert.deepEqual(effects.map(e=>e.effect),['interaccion','interaccion','mision_completa']);
+        const completion=messages.find(m=>m.kind==='operation_complete');
+        assert.equal(completion.audioId,'earth_complete');
+        assert.match(completion.voiceText,/Luna/);
+        assert.ok(fs.statSync(path.join(root,'public/assets/audio/iastronaut',completion.audioId+'.mp3')).size>0);
         await d.travelTo(1);await d.travelTo(1);d.update(1);
-        assert.equal(effects.filter(e=>e.effect==='calor_sol').length,1);
+        assert.equal(effects.filter(e=>e.effect==='calor_sol').length,0);
         await d.travelTo(2);assert.equal(effects.at(-1).effect,'apagar');
-        await d.travelTo(8);assert.equal(effects.at(-1).effect,'frio_neptuno');
+        await d.travelTo(8);assert.equal(effects.at(-1).effect,'apagar');
         await d.travelTo(0);assert.equal(effects.at(-1).effect,'apagar');
         await d.travelTo(8);await d.restartMission();
         assert.equal(effects.at(-1).effect,'apagar');assert.equal(d.getState().current.id,'earth');
@@ -189,12 +193,12 @@ test('puente de misiones descarta efectos sin autorizacion y envia sin duracione
     env.run(fs.readFileSync(path.join(root,'public/assets/js/iastronaut/missionHaptics.js'),'utf8').replace('export function','function'));
     env.run('var sendEffect=createMissionHaptics();');
     await new Promise(resolve=>setImmediate(resolve));
-    env.run("sendEffect({effect:'calor_sol',scene:'sun'})");
+    env.run("sendEffect({effect:'interaccion',scene:'sun'})");
     for(let i=0;i<5;i++)await Promise.resolve();
     const body=JSON.parse(requests.find(r=>r.url.includes('enviar-evento')).opts.body);
-    assert.equal(body.efecto,'calor_sol');assert.equal(body.duration,undefined);
+    assert.equal(body.efecto,'interaccion');assert.equal(body.duration,undefined);
     env.window.dispatchEvent({type:'pagehide'});
-    const count=requests.length;env.run("sendEffect({effect:'frio_neptuno',scene:'neptune'})");assert.equal(requests.length,count);
+    const count=requests.length;env.run("sendEffect({effect:'interaccion',scene:'neptune'})");assert.equal(requests.length,count);
     assert.equal(JSON.parse(requests.at(-1).opts.body).efecto,'apagar');
 });
 
@@ -213,6 +217,6 @@ test('chaleco real: viajar apaga sin desconectar y vibraciones usan protocolo re
     assert.equal(ble.writes.at(-1).type,'vibration');
     ble.notify('vibration:on,ch=all,dur=200');await vibration;
     const count=ble.writes.length;
-    await assert.rejects(env.run("ChalecoBluetooth.enviarEfecto('calor_sol',3000)"), /no configurado/);
+    await assert.rejects(env.run("ChalecoBluetooth.enviarEfecto('calor_sol',3000)"), /Duracion/);
     assert.equal(ble.writes.length,count);assert.equal(ble.device.gatt.connected,true);
 });

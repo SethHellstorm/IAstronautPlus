@@ -150,12 +150,15 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
             pressByController.delete(controller);
         });
         const lineGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
-        const lineMat = new THREE.LineBasicMaterial({ color: 0x9cefff, transparent: true, opacity: 0.72 });
+        const lineMat = new THREE.LineBasicMaterial({ color: 0x9cefff, transparent: true, opacity: 0.72, depthTest: false, depthWrite: false, toneMapped: false });
         const line = new THREE.Line(lineGeo, lineMat);
+        // Draw interaction feedback above all mission HUD panels (orders 2-130).
+        // Ray length still ends at the nearest hit; this only affects visibility.
+        line.renderOrder = 200;
         line.scale.z = 3.2;
         const reticle = new THREE.Mesh(new THREE.RingGeometry(0.012, 0.024, 28), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.96, depthTest: false, depthWrite: false, side: THREE.DoubleSide }));
         reticle.position.z = -3.2;
-        reticle.renderOrder = 100;
+        reticle.renderOrder = 201;
         reticle.visible = false;
         controller.userData.rayLine = line;
         controller.userData.rayReticle = reticle;

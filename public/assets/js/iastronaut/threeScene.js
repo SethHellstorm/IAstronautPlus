@@ -389,7 +389,7 @@ function createDesktopHelp(renderer) {
             if (!corona) director.announceMoonLocked();
             else {
                 dismissPendingWelcome();
-                addBubble(uiState, drawPanel, "Completa la mision del Sol para explorar la corona solar.", "bot");
+                addBubble(uiState, drawPanel, "Completa la mision del Sol para explorar la corona solar.", "bot", { source: "mission" });
                 void voiceGuide.playLocal("corona_locked", {interrupt:true, remember:true});
             }
             return;
@@ -458,7 +458,8 @@ function createDesktopHelp(renderer) {
             if (index !== director.getState().currentIndex) {
                 return await director.travelTo(index);
             }
-            // Returning to Earth does not trigger the director's scene-change callback.
+            // Returning to the same main destination still starts a fresh arrival.
+            director.announceArrival();
             const remaining = Math.max(0, 1150 - (performance.now() - travelStartedAt));
             if (remaining) await new Promise(resolve => setTimeout(resolve, remaining));
             return true;

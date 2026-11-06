@@ -129,7 +129,7 @@ export function createMissionDirector({ onSceneChange, onMissionMessage, onHapti
         }
         catch (_) { }
     }
-    function notify(message, voiceText = message, kind = "mission") {
+    function notify(message, voiceText = message, kind = "mission", audioId = "") {
         const spokenText = String(voiceText || message || "").replace(/\s+/g, " ").trim();
         if (!spokenText)
             return;
@@ -137,7 +137,7 @@ export function createMissionDirector({ onSceneChange, onMissionMessage, onHapti
             guidanceText = spokenText;
         try {
             // La narración natural es la fuente única para voz y terminal.
-            onMissionMessage?.(spokenText, { voiceText: spokenText, kind, detailText: String(message || "").trim() });
+            onMissionMessage?.(spokenText, { voiceText: spokenText, kind, audioId, detailText: String(message || "").trim() });
         }
         catch (_) { }
         emit();
@@ -401,16 +401,18 @@ export function createMissionDirector({ onSceneChange, onMissionMessage, onHapti
         const route = next ? ` La ruta hacia ${next.name} quedó desbloqueada.` : " Has restaurado toda la red Helios y completado la misión principal.";
         const baseVoice = op.voice?.complete || op.success;
         const factVoice = op.voice?.fact || stage.discovery || "";
-        const moonUnlock = stage.id === "earth"
+        const optionalUnlock = stage.id === "earth"
             ? "Tambi\u00e9n has desbloqueado la Luna como misi\u00f3n opcional. Selecciona la Luna en la segunda fila de la ruta hologr\u00e1fica. No afecta al progreso principal."
-            : "";
+            : stage.id === "sun"
+                ? "Tambi\u00e9n has desbloqueado la corona solar como misi\u00f3n opcional. Selecciona Corona solar en la segunda fila de la ruta hologr\u00e1fica. Puedes explorarla ahora o continuar hacia Mercurio. La misi\u00f3n de la corona tiene su propio progreso y no afecta al de la ruta principal."
+                : "";
         const voice = [
             baseVoice,
             factVoice,
             next ? `He resaltado ${spokenDestination(next)} en el mapa.` : "",
-            moonUnlock
+            optionalUnlock
         ].filter(Boolean).join(" ");
-        notify(`${op.success} ${stage.discovery}${route} ${moonUnlock}`.trim(), voice, "operation_complete");
+        notify(`${op.success} ${stage.discovery}${route} ${optionalUnlock}`.trim(), voice, "operation_complete", stage.id === "earth" ? "earth_complete" : stage.id === "sun" ? "sun_complete" : "");
         return { completed: true, targetId: null, message: op.success };
     }
     function interactOrderedTarget(targetId) {
@@ -679,6 +681,11 @@ export function createMissionDirector({ onSceneChange, onMissionMessage, onHapti
         else if (result.accepted) haptic('interaccion');
         return result;
     }
+    function announceArrival() {
+            const op = operation();
+            const arrivalVoice = op?.voice?.arrival || `Llegamos a ${current().name}. Cuando estés listo, podemos comenzar.`;
+            notify(`${current().intro} ${op?.briefing || ""}`, arrivalVoice, "arrival");
+    }
     async function applyScene(announce) {
         const requestId = ++sceneRequest;
         traveling = true;
@@ -697,14 +704,8 @@ export function createMissionDirector({ onSceneChange, onMissionMessage, onHapti
             return false;
         traveling = false;
         backgroundFallback = !!result?.fallback;
-        if (current().id === 'sun') haptic('calor_sol');
-        if (current().id === 'neptune') haptic('frio_neptuno');
         emit();
-        if (announce) {
-            const op = operation();
-            const arrivalVoice = op?.voice?.arrival || `Llegamos a ${current().name}. Cuando estés listo, podemos comenzar.`;
-            notify(`${current().intro} ${op?.briefing || ""}`, arrivalVoice, "arrival");
-        }
+        if (announce) announceArrival();
         return true;
     }
     async function travelTo(index, announce = true) {
@@ -940,6 +941,7 @@ export function createMissionDirector({ onSceneChange, onMissionMessage, onHapti
         return applyScene(false);
     }
     return {
+        announceArrival,
         announceMoonLocked() {
             const message = "La Luna sigue bloqueada. Completa primero la misi\u00f3n de la Tierra para desbloquear esta localizaci\u00f3n opcional.";
             notify(message, message, "route_locked");

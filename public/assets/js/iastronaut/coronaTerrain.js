@@ -102,12 +102,16 @@ export function createCoronaTerrain({THREE,world, samples, objects, onChange}) {
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.minFilter = THREE.LinearFilter;
         texture.generateMipmaps = false;
-        const label = new THREE.Sprite(new THREE.SpriteMaterial({
-            map:texture, transparent:true, depthWrite:false, toneMapped:false
+        // Fixed world-space panels can be raycast by XR controllers and hands
+        // without the camera dependency of Sprite.raycast.
+        const label = new THREE.Mesh(new THREE.PlaneGeometry(6.4,1.2), new THREE.MeshBasicMaterial({
+            map:texture, transparent:true, depthTest:false, depthWrite:false, toneMapped:false,
+            side:THREE.DoubleSide
         }));
         label.name = `Letrero: ${target.name}`;
+        // Above the eclipse and halo, below the mission HUD and XR pointer.
+        label.renderOrder = 50;
         label.position.set(0,1.35,0.1);
-        label.scale.set(6.4,1.2,1);
         support.add(label);
         const sample={id,soporte:support,aro:ring};target.userData.muestra=sample;
         label.userData.muestra=sample;

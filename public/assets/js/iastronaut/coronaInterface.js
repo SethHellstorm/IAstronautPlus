@@ -3,7 +3,7 @@ import { roundRect } from './canvasUtils.js';
 import { drawMissionLog } from './missionLog.js';
 import { drawSolarRoute } from "./solarRoute.js";
 import { SOLAR_MISSION } from "./missionData.js";
-import { createPanel, createUIState, drawPanelFactory, addBubble } from './uiPanel.js';
+import { createPanel, createUIState, drawPanelFactory, addBubble, clearBubblesBySource } from './uiPanel.js';
 import { makePanel, drawShell, drawWrapped, drawBar, drawButton, drawPrimaryButton, drawDot, pointInRect } from './panelCanvas.js';
 import { MISSION_AUDIO_DIR, HIT_ZONES, MAIN_PANEL_Y, MAIN_PANEL_HEIGHT, MAIN_PANEL_WIDTH, PANEL_LAYOUT_GAP } from './config.js';
 import { createTTSPlayer, createVoiceGuide } from './voice.js';
@@ -30,13 +30,35 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
     let started = !!getMission().started, focus = false, tab = 'OBJETIVO', lastCollected = getMission().collected, lastError = '';
     const scanResults = ["Corona interior registrada. Observa el halo brillante junto al borde del disco ocultado.", "Filamento coronal registrado. Observa la estructura luminosa que se extiende hacia el espacio.", "Prominencia solar registrada. Observa la estructura rojiza que sobresale del borde."];
     const completionSummary = "Investigacion completada. Registraste la corona interior, un filamento coronal y una prominencia solar. Puedes revisar los resultados o volver al Sol.";
+    // Sources: https://science.nasa.gov/sun/facts/
+    // https://science.nasa.gov/reference/the-heliopedia/
     const scienceTopics = {
-        composition:{label:'COMPOSICION',value:'PLASMA',detail:'La corona es la atmosfera exterior del Sol. En este prototipo observamos tres regiones y registramos datos.'},
-        temperature:{label:'TEMPERATURA',value:'OBSERVACION',detail:'El escaneo representa una medicion remota. Los colores del prototipo no son un termometro.'},
-        gravity:{label:'GRAVEDAD',value:'SONDA DE OBSERVACION',detail:'La camara permanece fija. Gira para localizar las tres regiones de estudio.'},
-        curiosity:{label:'CURIOSIDAD',value:'ARCOS DE PLASMA',detail:'Los arcos son una representacion visual simplificada, no una simulacion fisica.'},
-        compare:{label:'COMPARAR',value:'MISION SECUNDARIA',detail:'Esta actividad registra observaciones. Su progreso es independiente de la mision principal del Sol.'}
-    };
+        "composition": {
+                "label": "COMPOSICI\u00d3N",
+                "value": "PLASMA SOLAR",
+                "detail": "La corona es la capa exterior de la atm\u00f3sfera solar. Contiene sobre todo hidr\u00f3geno y helio ionizados: un plasma de electrones libres e iones, guiado por campos magn\u00e9ticos."
+        },
+        "temperature": {
+                "label": "TEMPERATURA",
+                "value": "M\u00c1S DE UN MILL\u00d3N DE GRADOS",
+                "detail": "La corona supera el mill\u00f3n de grados Celsius, mucho m\u00e1s que la superficie visible del Sol. Su calentamiento est\u00e1 relacionado con procesos magn\u00e9ticos que siguen investig\u00e1ndose."
+        },
+        "gravity": {
+                "label": "GRAVEDAD",
+                "value": "ATRACCI\u00d3N DEL SOL",
+                "detail": "La corona pertenece al Sol: no tiene una gravedad superficial propia. La atracci\u00f3n solar disminuye con la distancia. Parte del plasma escapa hacia el espacio como viento solar."
+        },
+        "curiosity": {
+                "label": "CURIOSIDAD",
+                "value": "VISIBLE EN UN ECLIPSE",
+                "detail": "Durante un eclipse total, la Luna oculta el disco brillante del Sol y permite ver la tenue corona. Los coron\u00f3grafos bloquean esa luz para estudiarla sin esperar a un eclipse."
+        },
+        "compare": {
+                "label": "COMPARAR",
+                "value": "CORONA Y FOTOSFERA",
+                "detail": "La fotosfera, la superficie visible del Sol, ronda los 5.500 grados Celsius. La corona es mucho m\u00e1s caliente, pero mucho menos densa: sus part\u00edculas est\u00e1n m\u00e1s separadas."
+        }
+};
     let logSection = 'main';
     let selectedTopic = 'composition';
     let hover = '';
@@ -104,6 +126,21 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
     }
     const mic = createMicChatController({state,drawPanel:drawTerminal,ttsPlayer:tts,voiceGuide:guide,
         getMissionContext:context, onAssistantAction:runAction});
+    async function travelOptional(kind) {
+        if (!navigation?.travelOptional) return false;
+        const parent = kind === 'corona' ? 'sun' : 'earth';
+        if (!navigation.getState().completed.has(parent)) {
+            const message = kind === 'corona'
+                ? 'Completa la mision del Sol para explorar la corona solar.'
+                : 'La Luna sigue bloqueada. Completa primero la misi\u00f3n de la Tierra para desbloquear esta localizaci\u00f3n opcional.';
+            focus=false;refresh();
+            addBubble(state,drawTerminal,message,'bot',{source:'mission'});
+            void guide.playLocal(kind === 'corona' ? 'corona_locked' : 'moon_locked', {interrupt:true,remember:true});
+            return false;
+        }
+        await navigation.travelOptional(kind);
+        return true;
+    }
     async function travelTo(index) {
         if(!navigation || !SOLAR_MISSION[index]) return false;
         if(!navigation.isUnlocked(index)) {
@@ -275,7 +312,7 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
         if(!h || !meshes.includes(h.object)) return false;
         const key=keyFor(h);
         if(key.startsWith('destination:')) {void travelTo(Number(key.split(':')[1]));}
-        else if(key==='moon:' || key==='corona:') {void navigation?.travelOptional?.(key.slice(0,-1));}
+        else if(key==='moon:' || key==='corona:') {void travelOptional(key.slice(0,-1));}
         else if(key.startsWith('science:') && scienceTopics[key.slice(8)]) {selectedTopic=key.slice(8);refresh();}
         else if(key==='log:main' || key==='log:optional') {logSection=key.slice(4);refresh();}
         else if(key==='return') {mic.stop();guide.stop();onReturn?.();}
@@ -301,7 +338,7 @@ export function createCoronaInterface({ THREE, scene, renderer, getMission, rece
     return {group,refresh,update,inputContext:{panelMesh:terminal.panelMesh,panelCanvas:terminal.panelCanvas,uiGroup:group,state,drawPanel:drawTerminal},click:ray=>clickHit(hit(ray)),setHover:ray=>hoverHit(hit(ray)),scroll,
         clickHit,hoverHit,getInteractiveMeshes:()=>meshes.filter(m=>m.visible && group.visible),
         runAction,getContext:context,
-        enter:()=>{resetIdle();active=true;void guide.unlock();void narrate(getMission().collected===3?'La misi\u00f3n de la corona est\u00e1 completa. Puedes consultar la ciencia o regresar al Sol.':started?'Bienvenido de nuevo. Retoma la operaci\u00f3n para escanear los registros pendientes.':welcome);},
+        enter:()=>{resetIdle();active=true;void guide.unlock();clearBubblesBySource(state,drawTerminal,"mission");say(getMission().collected===3?'La misi\u00f3n de la corona est\u00e1 completa. Puedes consultar la ciencia o regresar al Sol.':started?'Bienvenido de nuevo. Retoma la operaci\u00f3n para escanear los registros pendientes.':welcome);},
         stop:()=>{resetIdle();active=false;mic.stop();guide.stop();},canCollect:()=>started,
         onXRStart:()=>mic.onXRSessionStart(),onXREnd:()=>mic.stop()};
 }

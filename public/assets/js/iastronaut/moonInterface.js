@@ -3,7 +3,7 @@ import { roundRect } from './canvasUtils.js';
 import { drawMissionLog } from './missionLog.js';
 import { drawSolarRoute } from "./solarRoute.js";
 import { SOLAR_MISSION } from "./missionData.js";
-import { createPanel, createUIState, drawPanelFactory, addBubble } from './uiPanel.js';
+import { createPanel, createUIState, drawPanelFactory, addBubble, clearBubblesBySource } from './uiPanel.js';
 import { makePanel, drawShell, drawWrapped, drawBar, drawButton, drawPrimaryButton, drawDot, pointInRect } from './panelCanvas.js';
 import { MISSION_AUDIO_DIR, HIT_ZONES, MAIN_PANEL_Y, MAIN_PANEL_HEIGHT, MAIN_PANEL_WIDTH, PANEL_LAYOUT_GAP } from './config.js';
 import { createTTSPlayer, createVoiceGuide } from './voice.js';
@@ -102,6 +102,21 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     }
     const mic = createMicChatController({state,drawPanel:drawTerminal,ttsPlayer:tts,voiceGuide:guide,
         getMissionContext:context, onAssistantAction:runAction});
+    async function travelOptional(kind) {
+        if (!navigation?.travelOptional) return false;
+        const parent = kind === 'corona' ? 'sun' : 'earth';
+        if (!navigation.getState().completed.has(parent)) {
+            const message = kind === 'corona'
+                ? 'Completa la mision del Sol para explorar la corona solar.'
+                : 'La Luna sigue bloqueada. Completa primero la misi\u00f3n de la Tierra para desbloquear esta localizaci\u00f3n opcional.';
+            focus=false;refresh();
+            addBubble(state,drawTerminal,message,'bot',{source:'mission'});
+            void guide.playLocal(kind === 'corona' ? 'corona_locked' : 'moon_locked', {interrupt:true,remember:true});
+            return false;
+        }
+        await navigation.travelOptional(kind);
+        return true;
+    }
     async function travelTo(index) {
         if(!navigation || !SOLAR_MISSION[index]) return false;
         if(!navigation.isUnlocked(index)) {
@@ -272,7 +287,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         if(!h || !meshes.includes(h.object)) return false;
         const key=keyFor(h);
         if(key.startsWith('destination:')) {void travelTo(Number(key.split(':')[1]));}
-        else if(key==='moon:' || key==='corona:') {void navigation?.travelOptional?.(key.slice(0,-1));}
+        else if(key==='moon:' || key==='corona:') {void travelOptional(key.slice(0,-1));}
         else if(key.startsWith('science:') && scienceTopics[key.slice(8)]) {selectedTopic=key.slice(8);refresh();}
         else if(key==='log:main' || key==='log:optional') {logSection=key.slice(4);refresh();}
         else if(key==='return') {mic.stop();guide.stop();onReturn?.();}
@@ -298,7 +313,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     return {group,refresh,update,inputContext:{panelMesh:terminal.panelMesh,panelCanvas:terminal.panelCanvas,uiGroup:group,state,drawPanel:drawTerminal},click:ray=>clickHit(hit(ray)),setHover:ray=>hoverHit(hit(ray)),scroll,
         clickHit,hoverHit,getInteractiveMeshes:()=>meshes.filter(m=>m.visible && group.visible),
         runAction,getContext:context,
-        enter:()=>{resetIdle();active=true;void guide.unlock();void narrate(getMission().collected===3?'La misi\u00f3n lunar est\u00e1 completa. Puedes consultar la ciencia o regresar a la Tierra.':started?'Bienvenido de nuevo. Retoma la operaci\u00f3n para recoger las muestras pendientes.':welcome);},
+        enter:()=>{resetIdle();active=true;void guide.unlock();clearBubblesBySource(state,drawTerminal,"mission");say(getMission().collected===3?'La misi\u00f3n lunar est\u00e1 completa. Puedes consultar la ciencia o regresar a la Tierra.':started?'Bienvenido de nuevo. Retoma la operaci\u00f3n para recoger las muestras pendientes.':welcome);},
         stop:()=>{resetIdle();active=false;mic.stop();guide.stop();},canCollect:()=>started,
         onXRStart:()=>mic.onXRSessionStart(),onXREnd:()=>mic.stop()};
 }
