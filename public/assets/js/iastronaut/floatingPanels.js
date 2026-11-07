@@ -4,7 +4,7 @@ import { SOLAR_MISSION, MISSION_TOPIC_ORDER } from "./missionData.js";
 import { MAIN_PANEL_WIDTH, MAIN_PANEL_HEIGHT, MAIN_PANEL_Y, PANEL_LAYOUT_GAP } from "./config.js";
 import { roundRect } from "./canvasUtils.js";
 import { drawShell, drawDot, drawWrapped, drawBar, drawButton, drawPrimaryButton, makePanel, pointInRect, circleContains } from "./panelCanvas.js";
-export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director, getWorldStatus, mainPanelMesh, onMoon = null, onCorona = null }) {
+export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director, getWorldStatus, mainPanelMesh, onMoon = null, onCorona = null, onPluto = null }) {
     const sidePanelWidth = 1.28;
     const statusHeight = 0.42;
     const solarMapHeight = 0.92;
@@ -326,7 +326,7 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
         texture.needsUpdate = true;
     }
     function drawSolarMap(t) {
-        drawSolarRoute({solarMap, state, director, isHovered, onMoon, onCorona, t});
+        drawSolarRoute({solarMap, state, director, isHovered, onMoon, onCorona, onPluto, t});
     }
     function drawPanelWhenNeeded(panel, t, interval, draw) {
         if (!panel.mesh.visible)
@@ -405,6 +405,10 @@ export function createFloatingMissionPanels({ THREE, uiGroup, renderer, director
             await director.next();
         else if (zone.type === "destination")
             await director.travelTo(zone.index);
+        else if (zone.type === "pluto") {
+            if (state.traveling) return false;
+            await onPluto?.();
+        }
         else if (zone.type === "corona") {
             if (state.traveling) return false;
             if (!state.completed.has("sun")) {await onCorona?.();return true;}

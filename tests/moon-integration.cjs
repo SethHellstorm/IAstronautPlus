@@ -187,3 +187,28 @@ test('viaje directo desde Marte a Luna y Corona restaura la escena original', as
     assert.equal(h.ctx.scene.background,'stars');
     assert.equal(h.ctx.director.getState().current.id,'mars');
 });
+
+
+test('Pluton: escaneos unicos, persistencia y reinicio independiente',async()=>{
+    const {createPlutoProgress,isPlutoUnlocked}=await moduleAt('plutoProgress.js');
+    assert.equal(isPlutoUnlocked({completed:new Set(['earth','sun'])}),false);
+    assert.equal(isPlutoUnlocked({completed:new Set(['mercury'])}),true);
+    const store=storage([['iastronaut_sidequest_moon_v1','moon']]);
+    const p=createPlutoProgress(store);assert.equal(p.collect(0),false);p.start();
+    for(const id of [2,0,1])assert.equal(p.collect(id),true);
+    assert.equal(p.collect(2),false);assert.equal(createPlutoProgress(store).getState().completed,true);
+    p.reset();assert.equal(p.getState().started,false);assert.equal(p.getState().collected.length,0);
+    assert.equal(store.getItem('iastronaut_sidequest_moon_v1'),'moon');
+});
+test('Pluton: HUD inicia y completa tres registros, permite reiniciar',async()=>{
+    const {createPlutoInterface}=await moduleAt('plutoInterface.js',{document:{createElement:canvas},navigator:{},window:{APP_BASE:'',addEventListener(){}},performance,setTimeout,clearTimeout});
+    const state={ready:true,collected:0,collectedIds:[],started:false};let resets=0;
+    const hud=createPlutoInterface({THREE,scene:new Group,renderer:{},getMission:()=>state,recenter(){},onStart(){state.started=true;},onRestart(){resets++;state.started=false;state.collected=0;state.collectedIds=[];}});
+    await hud.runAction({type:'start_operation'});assert.equal(state.started,true);
+    for(const id of [2,0,1]){state.collectedIds.push(id);state.collected++;hud.refresh();}
+    assert.equal(hud.getContext().operation_complete,true);
+    assert.equal(hud.inputContext.state.bubbles.at(-1).text.includes('Investigaci'),true);
+    const control=hud.group.children.find(o=>o.userData.missionPanelId==='moon-controls');
+    hud.clickHit({object:control,uv:{x:200/760,y:1-700/900}});
+    assert.equal(resets,1);assert.equal(state.collected,0);
+});

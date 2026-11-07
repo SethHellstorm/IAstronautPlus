@@ -1,6 +1,6 @@
 import { SOLAR_MISSION } from "./missionData.js";
 import { drawShell } from "./panelCanvas.js";
-export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, onCorona, activeCorona = false, activeMoon = false, t = 0 }) {
+export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, onCorona, onPluto, activePluto = false, activeCorona = false, activeMoon = false, t = 0 }) {
         const { ctx, canvas, texture } = solarMap;
         drawShell(ctx, canvas.width, canvas.height, "RUTA HOLOGRÁFICA", state.current.accent);
         solarMap.hitZones = [];
@@ -41,7 +41,7 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, o
             const x = startX + gap * i;
             const unlocked = director.isUnlocked(i);
             const done = state.completed.has(item.id);
-            const active = !activeMoon && !activeCorona && i === state.currentIndex;
+            const active = !activeMoon && !activeCorona && !activePluto && i === state.currentIndex;
             const next = i === nextIndex;
             const hovered = isHovered(solarMap, "destination", i);
             if (next) {
@@ -108,7 +108,7 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, o
         }
         const sidequests = [
             ["LUNA", "", true], ["CORONA", "SOLAR", true],
-            ["PLUT\u00d3N", "", false], ["ESTACI\u00d3N", "ESPACIAL", false],
+            ["PLUT\u00d3N", "", true], ["ESTACI\u00d3N", "ESPACIAL", false],
             ["CINTUR\u00d3N", "PRINCIPAL", false], ["EUROPA", "", false],
             ["TIT\u00c1N", "", false], ["COMETA", "", false],
             ["CINTUR\u00d3N", "DE KUIPER", false]
@@ -117,9 +117,9 @@ export function drawSolarRoute({ solarMap, state, director, isHovered, onMoon, o
             const x = startX + gap * i;
             const accent = i <= 1 ? "#C4C7CC" : "#78E8FF";
             const unlocked = state.completed.has(SOLAR_MISSION[i].id);
-            const action = i === 1 ? onCorona : onMoon;
-            const type = i === 1 ? "corona" : "moon";
-            const active = i === 1 ? activeCorona : i === 0 && activeMoon;
+            const action = i === 2 ? onPluto : i === 1 ? onCorona : onMoon;
+            const type = i === 2 ? "pluto" : i === 1 ? "corona" : "moon";
+            const active = i === 2 ? activePluto : i === 1 ? activeCorona : i === 0 && activeMoon;
             const enabled = ready && unlocked && !!action && !state.traveling;
             const selectable = ready && !!action && !state.traveling;
             const hovered = selectable && isHovered(solarMap, type, "");

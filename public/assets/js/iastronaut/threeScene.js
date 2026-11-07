@@ -381,11 +381,17 @@ function createDesktopHelp(renderer) {
     let mainSceneSnapshot = null;
     async function openMoon(kind = "moon") {
         const corona = kind === "corona";
-        const parent = corona ? "sun" : "earth";
+        const parent = kind === "pluto" ? "mercury" : corona ? "sun" : "earth";
         if (moonOpening || (moonActive && moon === optionalExperiences.get(kind))) return;
         let state = director.getState();
         if (state.traveling) return;
-        if (corona ? !state.completed.has("sun") : !isMoonUnlocked(state)) {
+        if (!state.completed.has(parent)) {
+            if (kind === "pluto") {
+                const message="Completa la mision de Mercurio para explorar Pluton.";
+                addBubble(uiState,drawPanel,message,"bot",{source:"mission"});
+                void voiceGuide.playLocal("pluto_locked",{interrupt:true,remember:true});
+                return;
+            }
             if (!corona) director.announceMoonLocked();
             else {
                 dismissPendingWelcome();
@@ -399,10 +405,10 @@ function createDesktopHelp(renderer) {
         try {
             let destination = optionalExperiences.get(kind);
             if (!destination) {
-                const module = await import(corona ? "./coronaExperience.js" : "./moonExperience.js");
-                const createMoonExperience = corona ? module.createCoronaExperience : module.createMoonExperience;
+                const module = await import(kind === "pluto" ? "./plutoExperience.js" : corona ? "./coronaExperience.js" : "./moonExperience.js");
+                const createMoonExperience = kind === "pluto" ? module.createPlutoExperience : corona ? module.createCoronaExperience : module.createMoonExperience;
                 destination = createMoonExperience({ THREE, scene, camera, renderer, base: APP_BASE,
-                    onReturn: () => leaveMoonFor(corona ? 1 : 0), exitVR: exitImmersiveVR,
+                    onReturn: () => leaveMoonFor(kind === "pluto" ? 2 : corona ? 1 : 0), exitVR: exitImmersiveVR,
                     onHaptic: sendHaptic,
                     navigation:{getState:()=>director.getState(),isUnlocked:i=>director.isUnlocked(i),travelTo:leaveMoonFor,travelOptional:openMoon} });
                 optionalExperiences.set(kind, destination);
@@ -528,6 +534,7 @@ function createDesktopHelp(renderer) {
         mainPanelMesh: panelMesh,
         onMoon: () => openMoon("moon"),
         onCorona: () => openMoon("corona"),
+        onPluto: () => openMoon("pluto"),
     });
     missionWorld = createMissionWorld({ THREE, scene, camera, renderer, director });
     function syncVRExitVisibility() {

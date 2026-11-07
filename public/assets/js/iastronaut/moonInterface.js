@@ -54,7 +54,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         const routeState=navigation?.getState() || {current:SOLAR_MISSION[0], currentIndex:0, task:{completed:true}, completed:new Set(['earth']), traveling:false};
         drawSolarRoute({solarMap:route, state:routeState,
             director:{isUnlocked:i=>navigation ? navigation.isUnlocked(i) : i<=1},
-            isHovered:(_p,type,index='')=>hover===`${type}:${index}`, onMoon:true, onCorona:!!navigation?.travelOptional, activeMoon:true, t:now / 1000});
+            isHovered:(_p,type,index='')=>hover===`${type}:${index}`, onMoon:true, onCorona:!!navigation?.travelOptional, onPluto:!!navigation?.travelOptional, activeMoon:true, t:now / 1000});
         lastRouteDraw = now;
     }
     function update(now = performance.now()) {
@@ -104,6 +104,10 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         getMissionContext:context, onAssistantAction:runAction});
     async function travelOptional(kind) {
         if (!navigation?.travelOptional) return false;
+        if (kind === 'pluto') {
+            if (!navigation.getState().completed.has('mercury')) {focus=false;refresh();addBubble(state,drawTerminal,'Plut\u00f3n sigue bloqueado. Completa primero la operaci\u00f3n de Mercurio para desbloquear esta localizaci\u00f3n opcional.','bot',{source:'mission'});void guide.playLocal('pluto_locked',{interrupt:true,remember:true});return false;}
+            await navigation.travelOptional(kind);return true;
+        }
         const parent = kind === 'corona' ? 'sun' : 'earth';
         if (!navigation.getState().completed.has(parent)) {
             const message = kind === 'corona'
@@ -281,13 +285,13 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         const p=panels.find(p=>p.mesh===h.object);
         const point=p?{x:h.uv.x*p.canvas.width,y:(1-h.uv.y)*p.canvas.height}:null;
         const zone=p?.hitZones.find(z=>z.rect?pointInRect(point,z.rect):Math.hypot(point.x-z.circle.x,point.y-z.circle.y)<=z.circle.r);
-        return zone?.key || (zone?.type==='destination'?`destination:${zone.index}`:['moon','corona'].includes(zone?.type)?`${zone.type}:`:'');
+        return zone?.key || (zone?.type==='destination'?`destination:${zone.index}`:['moon','corona','pluto'].includes(zone?.type)?`${zone.type}:`:'');
     }
     function clickHit(h) {
         if(!h || !meshes.includes(h.object)) return false;
         const key=keyFor(h);
         if(key.startsWith('destination:')) {void travelTo(Number(key.split(':')[1]));}
-        else if(key==='moon:' || key==='corona:') {void travelOptional(key.slice(0,-1));}
+        else if(key==='moon:' || key==='corona:' || key==='pluto:') {void travelOptional(key.slice(0,-1));}
         else if(key.startsWith('science:') && scienceTopics[key.slice(8)]) {selectedTopic=key.slice(8);refresh();}
         else if(key==='log:main' || key==='log:optional') {logSection=key.slice(4);refresh();}
         else if(key==='return') {mic.stop();guide.stop();onReturn?.();}
