@@ -21,8 +21,12 @@ export function createMoonExperience({ THREE, scene, camera, renderer, base, onR
     const ctx=canvas.getContext('2d');
     const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
     texture.minFilter=THREE.LinearFilter;texture.generateMipmaps=false;
-    const exit=new THREE.Mesh(new THREE.PlaneGeometry(.64,.256),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,toneMapped:false,side:THREE.DoubleSide}));
-    exit.renderOrder=100;root.add(exit);
+    const exit=new THREE.Mesh(new THREE.PlaneGeometry(1.1,.33),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,toneMapped:false,side:THREE.DoubleSide}));
+    // Match the main planets and keep the exit attached when the HUD moves.
+    exit.position.set(1.88,-1.72,.055);
+    exit.rotation.y=-.11;
+    exit.userData.vrExitControl=true;
+    exit.renderOrder=100;hud.group.add(exit);
     let exitBusy=false,exitHover=false,exitError=false;
     function drawExit() {exit.visible=renderer.xr.isPresenting;drawMoonExit(ctx,{busy:exitBusy,hovered:exitHover,error:exitError,immersive:renderer.xr.isPresenting});texture.needsUpdate=true;}
     function anchor(includeWorld=true) {
@@ -36,8 +40,6 @@ export function createMoonExperience({ THREE, scene, camera, renderer, base, onR
         const distance=renderer.xr.isPresenting?PANEL_DISTANCE_XR_DEFAULT:PANEL_DISTANCE_DEFAULT;
         hud.group.position.set(0,0,-distance).applyQuaternion(viewRotation).add(viewPosition);
         hud.group.quaternion.copy(viewRotation);
-        exit.position.set(1.45,-1.05,-3.2).applyQuaternion(viewRotation).add(viewPosition);
-        exit.quaternion.copy(viewRotation);
         root.updateMatrixWorld(true);
         invalidateShadows();
     }

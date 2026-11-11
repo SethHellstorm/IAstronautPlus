@@ -31,16 +31,38 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
     let started = !!getMission().started, focus = false, tab = 'OBJETIVO', lastCollected = getMission().collected, lastError = '';
     const scanResults = [PLUTO_DIALOGS.nitrogen,PLUTO_DIALOGS.water,PLUTO_DIALOGS.red];
     const completionSummary = PLUTO_DIALOGS.complete;
+    // Sources: NASA Science Pluto Facts and NASA NSSDC Pluto Fact Sheet.
     const scienceTopics = {
-        composition:{label:'COMPOSICION',value:'ROCA Y HIELOS',detail:'Los tres escaneos representan tipos de terreno. La textura es artistica y no indica ubicaciones geograficas verificadas.'},
-        temperature:{label:'TEMPERATURA',value:'ALREDEDOR DE -230 GRADOS C',detail:'La superficie de Pluton es extremadamente fria. Su temperatura varia con la region y la iluminacion solar.'},
-        gravity:{label:'GRAVEDAD',value:'0,62 m/s2',detail:'La gravedad superficial de Pluton es aproximadamente el 6 por ciento de la terrestre. Tu masa seria igual, pero pesarias mucho menos.'},
-        curiosity:{label:'CURIOSIDAD',value:'CARONTE',detail:'Caronte acompana a Pluton en esta vista. Las distancias entre ambos se han adaptado para facilitar la observacion.'},
-        compare:{label:'COMPARAR',value:'MENOR QUE NUESTRA LUNA',detail:'El diametro de Pluton es aproximadamente dos tercios del de la Luna terrestre. Es un planeta enano del cinturon de Kuiper.'}
-    };
+    "composition": {
+        "label": "COMPOSICI\u00d3N",
+        "value": "ROCA Y HIELOS",
+        "detail": "Plut\u00f3n combina roca y hielo. Su superficie tiene hielos de nitr\u00f3geno, metano y agua; el hielo de agua forma monta\u00f1as."
+    },
+    "temperature": {
+        "label": "TEMPERATURA",
+        "value": "ALREDEDOR DE -230 \u00b0C",
+        "detail": "Plut\u00f3n recibe muy poca luz solar. Con este fr\u00edo extremo, el hielo de agua es tan r\u00edgido como la roca."
+    },
+    "gravity": {
+        "label": "GRAVEDAD",
+        "value": "0,62 m/s\u00b2",
+        "detail": "Su gravedad es cerca del 6 % de la terrestre. All\u00ed pesar\u00edas mucho menos, aunque tu masa seguir\u00eda siendo la misma."
+    },
+    "curiosity": {
+        "label": "CURIOSIDAD",
+        "value": "PLUT\u00d3N Y CARONTE",
+        "detail": "Caronte mide cerca de la mitad del di\u00e1metro de Plut\u00f3n. Ambos se muestran siempre la misma cara durante su \u00f3rbita mutua."
+    },
+    "compare": {
+        "label": "COMPARAR",
+        "value": "MENOR QUE NUESTRA LUNA",
+        "detail": "Plut\u00f3n mide unos 2.377 km de di\u00e1metro: cerca de dos tercios de nuestra Luna. Es un planeta enano del cintur\u00f3n de Kuiper."
+    }
+};
     let logSection = 'main';
     let selectedTopic = 'composition';
     let hover = '';
+    const hoverDirty = new Set();
     const logs = ['Expedicion de Pluton preparada.'];
     const tts = createTTSPlayer();
     const guide = createVoiceGuide({ ttsPlayer: tts, localAudioBasePath: MISSION_AUDIO_DIR });
@@ -62,6 +84,12 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
         lastRouteDraw = now;
     }
     function update(now = performance.now()) {
+        if (hoverDirty.size) {
+            if (hoverDirty.has(terminal.panelMesh)) drawTerminal();
+            const changed = new Set(panels.filter(p => hoverDirty.has(p.mesh)));
+            hoverDirty.clear();
+            if (changed.size) refresh(lastError, changed);
+        }
         // Match the main route cadence without redrawing the other panels.
         if (active && !focus && group.visible && route.mesh.visible && !document.hidden && now - lastRouteDraw >= 250) {
             drawRoute(now);
@@ -177,7 +205,7 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
         else drawButton(p.ctx,rect,label,true,'#FFCF72',disabled,26,hover===key);
         if(!disabled) p.hitZones.push({key,rect});
     }
-    function refresh(error=lastError) {
+    function refresh(error=lastError, changed=null) {
         lastError=error;
         const m=getMission(), complete=m.collected===3, accent=complete?'#59F49B':'#FFCF72';
         if(m.collected!==lastCollected) {
@@ -188,13 +216,8 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
             lastCollected=m.collected;
             if(complete) focus=false;
         }
-        for(const p of panels) { p.hitZones=[]; drawShell(p.ctx,p.canvas.width,p.canvas.height,
+        for(const p of panels) { if(changed && !changed.has(p)) continue; p.hitZones=[]; drawShell(p.ctx,p.canvas.width,p.canvas.height,
             ({'moon-dossier':'CENTRO DE MISION','moon-controls':'CONTROL DE VUELO','moon-route':'RUTA HOLOGRAFICA / SECUNDARIA','moon-status':'ESTADO DE MISION','moon-resume':'EXPLORACION PLUTON'})[p.id],accent); }
-        ['OBJETIVO','CIENCIA','BITACORA'].forEach((label,i)=>{
-            const rect={x:28+i*240,y:96,w:224,h:62};
-            drawButton(dossier.ctx,rect,label,tab===label,accent,false,22,hover===label);
-            dossier.hitZones.push({key:label,rect});
-        });
         function card(p, label, body, y, height, lines=3) {
             const c=p.ctx;
             c.fillStyle='#082740'; c.strokeStyle=accent; c.lineWidth=3;
@@ -204,6 +227,12 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
             c.fillStyle='#EDF9FF'; c.font='750 27px system-ui, sans-serif';
             drawWrapped(c,body,52,y+74,654,33,lines);
         }
+        if (!changed || changed.has(dossier)) {
+        ['OBJETIVO','CIENCIA','BITACORA'].forEach((label,i)=>{
+            const rect={x:28+i*240,y:96,w:224,h:62};
+            drawButton(dossier.ctx,rect,label,tab===label,accent,false,22,hover===label);
+            dossier.hitZones.push({key:label,rect});
+        });
         if(tab==='OBJETIVO') {
         text(dossier,'MISI\u00d3N SECUNDARIA \u00b7 PLUTON',180,23,accent,1);
         text(dossier,'ESCANEO DE REGISTROS',225,32,'#FFFFFF',2);
@@ -229,6 +258,8 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
                 section:logSection,plutoCount:m.collected,activePluto:true,hover:hover.startsWith('log:')?hover.slice(4):'',
                 onZone:(key,rect)=>dossier.hitZones.push({key:`log:${key}`,rect})});
         }
+        }
+        if (!changed || changed.has(controls)) {
         text(controls,'PLUTON',96,45,accent,1);
         text(controls,'ESCANEO DE REGISTROS',148,23,'#BDEBF7',1);
         card(controls,complete?'OPERACI\u00d3N COMPLETA':started?'OPERACI\u00d3N EN PAUSA':'SIGUIENTE PASO',
@@ -238,7 +269,9 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
         button(controls,'restart','REPETIR OPERACI\u00d3N',660,false,!onRestart || !m.ready || (!started && m.collected===0));
         if (onReturn) button(controls,'return','VOLVER A MERCURIO',778);
         else text(controls,'Misi\u00f3n opcional / progreso independiente',790,23);
-        drawRoute();
+        }
+        if (!changed || changed.has(route)) drawRoute();
+        if (!changed || changed.has(status)) {
         text(status,'DESTINO',86,22,accent,1);
         text(status,'PLUTON',119,32,'#FFFFFF',1);
         text(status,complete?'REGISTROS RECUPERADOS':started?'ESCANEO EN CURSO':'LISTA PARA INICIAR',174,19,'#BDEBF7',1);
@@ -249,7 +282,8 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
         c.fillStyle='#FFFFFF';c.font='900 32px system-ui';c.fillText(`${m.collected} / 3`,420,119);
         c.fillStyle='#BDEBF7';c.font='800 20px ui-monospace, monospace';c.fillText('MISI\u00d3N OPCIONAL',420,174);
         drawBar(c,838,155,306,m.collected/3*100,accent,'OPERACI\u00d3N');
-        {
+        }
+        if (!changed || changed.has(resume)) {
             const {ctx,canvas}=resume;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const hovered = hover === "panels";
@@ -276,7 +310,7 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
             resume.hitZones.push({key:'panels',rect:{x:0,y:0,w:canvas.width,h:canvas.height}});
         }
         terminal.panelMesh.visible=!focus;
-        for(const p of panels) {p.mesh.visible=p===resume?focus:!focus;p.texture.needsUpdate=true;}
+        for(const p of panels) {p.mesh.visible=p===resume?focus:!focus;if(!changed || changed.has(p)) p.texture.needsUpdate=true;}
     }
     const meshes=[terminal.panelMesh,...panels.map(p=>p.mesh)];
     for(const mesh of meshes) {mesh.material.depthTest=false;mesh.material.depthWrite=false;mesh.material.toneMapped=false;mesh.renderOrder=100;}
@@ -311,7 +345,19 @@ export function createPlutoInterface({ THREE, scene, renderer, getMission, recen
     }
     function hoverHit(h) {
         const key=keyFor(h);
-        if(key!==hover) {hover=key;state.hoverZone=key;drawTerminal();refresh();}
+        if(key!==hover) {
+            const meshFor = value => {
+                if (['exit','recenter','talk','grab'].includes(value)) return terminal.panelMesh;
+                return panels.find(p => p.hitZones.some(z =>
+                    (z.key || (z.type==='destination'?`destination:${z.index}`:
+                        ['moon','corona','pluto'].includes(z.type)?`${z.type}:`:'')) === value))?.mesh;
+            };
+            for (const value of [hover,key]) {
+                const mesh = value && meshFor(value);
+                if (mesh) hoverDirty.add(mesh);
+            }
+            hover=key;state.hoverZone=key;
+        }
         return !!h;
     }
     function scroll(ray,delta) {const h=hit(ray);if(h?.object!==terminal.panelMesh)return false;state.scrollY=Math.max(0,Math.min(state.scrollMax,state.scrollY+delta));state.autoScroll=false;drawTerminal();return true;}

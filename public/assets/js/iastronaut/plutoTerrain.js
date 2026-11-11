@@ -2,8 +2,8 @@ export function createPlutoTerrain({THREE,world,base,samples,objects,onChange}) 
     let loaded=0;
     const loader=new THREE.TextureLoader();
     function body(file,radius,x,y,z){
-        const material=new THREE.MeshStandardMaterial({color:0xffffff,roughness:1});
-        const mesh=new THREE.Mesh(new THREE.SphereGeometry(radius,48,32),material);
+        const material=new THREE.MeshLambertMaterial({color:0xffffff});
+        const mesh=new THREE.Mesh(new THREE.SphereGeometry(radius,40,28),material);
         mesh.position.set(x,y,z);world.add(mesh);
         loader.load(`${base}/assets/sidequests/pluto/${file}`,texture=>{
             texture.colorSpace=THREE.SRGBColorSpace;material.map=texture;material.needsUpdate=true;
@@ -77,6 +77,16 @@ export function createPlutoTerrain({THREE,world,base,samples,objects,onChange}) 
         label.userData.muestra=sample;
         objects.push(label);
         samples.push(sample);objects.push(target,ring);ring.userData.muestra=sample;
+    });
+    // All local geometry is static; only the parent world moves when recentered.
+    world.traverse(object=>{
+        if(object===world)return;
+        object.updateMatrix();
+        object.matrixAutoUpdate=false;
+        if(object.geometry) {
+            object.geometry.computeBoundingSphere();
+            object.geometry.computeBoundingBox();
+        }
     });
     if(loaded===2) onChange();
 }

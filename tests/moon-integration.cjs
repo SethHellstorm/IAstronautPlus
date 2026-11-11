@@ -212,3 +212,35 @@ test('Pluton: HUD inicia y completa tres registros, permite reiniciar',async()=>
     hud.clickHit({object:control,uv:{x:200/760,y:1-700/900}});
     assert.equal(resets,1);assert.equal(state.collected,0);
 });
+
+for (const name of ['moon','corona','pluto']) {
+    test(`${name}: hover actualiza solo el panel afectado y agrupa eventos por frame`, async()=>{
+        const exports=await moduleAt(`${name}Interface.js`,{document:{createElement:canvas},navigator:{},window:{APP_BASE:'',addEventListener(){}},performance,setTimeout,clearTimeout});
+        const factory=exports[`create${name[0].toUpperCase()+name.slice(1)}Interface`];
+        const hud=factory({THREE,scene:new Group,renderer:{},getMission:()=>({ready:true,collected:0,started:false}),recenter(){}});
+        const meshes=hud.group.children.filter(o=>o.material?.map);
+        const dossier=meshes.find(o=>o.userData.missionPanelId==='moon-dossier');
+        const counts=new Map();
+        for(const mesh of meshes) Object.defineProperty(mesh.material.map,'needsUpdate',{set(value){if(value) counts.set(mesh,(counts.get(mesh)||0)+1);},configurable:true});
+        const hit=x=>({object:dossier,uv:{x:x/760,y:1-120/760}});
+        hud.hoverHit(hit(100));hud.hoverHit(hit(350));
+        assert.equal(counts.size,0,'hover defers uploads until update');
+        hud.update(0);
+        assert.equal(counts.size,1,'unrelated panels are untouched');
+        assert.equal(counts.get(dossier),1);
+        counts.clear();hud.hoverHit(hit(350));hud.update(1);
+        assert.equal(counts.size,0,'stationary pointer does not upload textures');
+        hud.hoverHit(null);hud.update(2);
+        assert.equal(counts.get(dossier),1,'leaving clears the highlight');
+    });
+}
+
+test('salir de VR tiene prioridad sobre suelo y rocas; el resto conserva distancia',async()=>{
+    const {selectInteractionHit}=await moduleAt('interactionHit.js');
+    const ground={distance:1,object:{userData:{}}};
+    const rock={distance:2,object:{userData:{muestra:1}}};
+    const exit={distance:4,object:{userData:{vrExitControl:true}}};
+    assert.equal(selectInteractionHit([ground,rock,exit]),exit);
+    assert.equal(selectInteractionHit([ground,rock]),ground);
+    assert.equal(selectInteractionHit([]),null);
+});

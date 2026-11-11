@@ -1,3 +1,4 @@
+import { selectInteractionHit } from "./interactionHit.js";
 import { HIT_ZONES, PANEL_DISTANCE_MIN, PANEL_DISTANCE_MAX } from "./config.js";
 function isMobileUA() {
     return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
@@ -41,7 +42,7 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         setMouse(clientX, clientY);
         raycaster.setFromCamera(mouseNDC, camera);
         const hits = raycaster.intersectObjects(list, true);
-        return hits.length ? hits[0] : null;
+        return selectInteractionHit(hits);
     }
     function panelRaycast(ev) {
         if (!(getPanelContext?.()?.panelMesh ?? panelMesh).visible)
@@ -52,6 +53,8 @@ export function setupDesktopMobileInput({ THREE, renderer, camera, panelMesh, pa
         return raycast(ev.clientX, ev.clientY, (getInteractiveMeshes?.() || []).filter((object) => object && object.visible !== false));
     }
     function nearestHit(panelHit, interactiveHit) {
+        if (interactiveHit?.object.userData?.vrExitControl)
+            return { panelHit, interactiveHit, primary: interactiveHit, type: "interactive" };
         if (!panelHit)
             return { panelHit: null, interactiveHit, primary: interactiveHit, type: interactiveHit ? "interactive" : "" };
         if (!interactiveHit)

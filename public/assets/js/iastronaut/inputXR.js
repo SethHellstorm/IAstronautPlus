@@ -1,3 +1,4 @@
+import { selectInteractionHit } from "./interactionHit.js";
 import { HIT_ZONES, PINCH_ON, PINCH_OFF } from "./config.js";
 function uvToCanvas(hit, panelCanvas) {
     if (!hit?.uv)
@@ -31,7 +32,7 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
             return null;
         setControllerRay(controller);
         const hits = raycaster.intersectObjects(list, true);
-        return hits.length ? hits[0] : null;
+        return selectInteractionHit(hits);
     }
     function castToPanelFromController(controller) {
         if (!(getPanelContext?.()?.panelMesh ?? panelMesh).visible)
@@ -42,6 +43,8 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         return castFromController(controller, interactiveList());
     }
     function nearestHit(panelHit, interactiveHit) {
+        if (interactiveHit?.object.userData?.vrExitControl)
+            return { panelHit, interactiveHit, primary: interactiveHit, type: "interactive" };
         if (!panelHit)
             return { panelHit: null, interactiveHit, primary: interactiveHit, type: interactiveHit ? "interactive" : "" };
         if (!interactiveHit)
@@ -251,7 +254,7 @@ export function setupXRInput({ THREE, renderer, scene, camera, panelMesh, panelC
         if (!list.length)
             return null;
         const hits = raycaster.intersectObjects(list, true);
-        return hits.length ? hits[0] : null;
+        return selectInteractionHit(hits);
     }
     function clearHandAction() {
         handAction.active = false;

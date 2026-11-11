@@ -38,6 +38,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     let logSection = 'main';
     let selectedTopic = 'composition';
     let hover = '';
+    const hoverDirty = new Set();
     const logs = ['Expedicion lunar preparada.'];
     const tts = createTTSPlayer();
     const guide = createVoiceGuide({ ttsPlayer: tts, localAudioBasePath: MISSION_AUDIO_DIR });
@@ -58,6 +59,12 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         lastRouteDraw = now;
     }
     function update(now = performance.now()) {
+        if (hoverDirty.size) {
+            if (hoverDirty.has(terminal.panelMesh)) drawTerminal();
+            const changed = new Set(panels.filter(p => hoverDirty.has(p.mesh)));
+            hoverDirty.clear();
+            if (changed.size) refresh(lastError, changed);
+        }
         // Match the main route cadence without redrawing the other panels.
         if (active && !focus && group.visible && route.mesh.visible && !document.hidden && now - lastRouteDraw >= 250) {
             drawRoute(now);
@@ -173,7 +180,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         else drawButton(p.ctx,rect,label,true,'#3FDCFF',disabled,26,hover===key);
         if(!disabled) p.hitZones.push({key,rect});
     }
-    function refresh(error=lastError) {
+    function refresh(error=lastError, changed=null) {
         lastError=error;
         const m=getMission(), complete=m.collected===3, accent=complete?'#59F49B':'#3FDCFF';
         if(m.collected!==lastCollected) {
@@ -183,13 +190,8 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
             lastCollected=m.collected;
             if(complete) focus=false;
         }
-        for(const p of panels) { p.hitZones=[]; drawShell(p.ctx,p.canvas.width,p.canvas.height,
+        for(const p of panels) { if(changed && !changed.has(p)) continue; p.hitZones=[]; drawShell(p.ctx,p.canvas.width,p.canvas.height,
             ({'moon-dossier':'CENTRO DE MISION','moon-controls':'CONTROL DE VUELO','moon-route':'RUTA HOLOGRAFICA / SECUNDARIA','moon-status':'ESTADO DE MISION','moon-resume':'EXPLORACION LUNAR'})[p.id],accent); }
-        ['OBJETIVO','CIENCIA','BITACORA'].forEach((label,i)=>{
-            const rect={x:28+i*240,y:96,w:224,h:62};
-            drawButton(dossier.ctx,rect,label,tab===label,accent,false,22,hover===label);
-            dossier.hitZones.push({key:label,rect});
-        });
         function card(p, label, body, y, height, lines=3) {
             const c=p.ctx;
             c.fillStyle='#082740'; c.strokeStyle=accent; c.lineWidth=3;
@@ -199,6 +201,12 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
             c.fillStyle='#EDF9FF'; c.font='750 27px system-ui, sans-serif';
             drawWrapped(c,body,52,y+74,654,33,lines);
         }
+        if (!changed || changed.has(dossier)) {
+        ['OBJETIVO','CIENCIA','BITACORA'].forEach((label,i)=>{
+            const rect={x:28+i*240,y:96,w:224,h:62};
+            drawButton(dossier.ctx,rect,label,tab===label,accent,false,22,hover===label);
+            dossier.hitZones.push({key:label,rect});
+        });
         if(tab==='OBJETIVO') {
         text(dossier,'MISI\u00d3N SECUNDARIA \u00b7 LUNA',180,23,accent,1);
         text(dossier,'RECOLECCI\u00d3N DE MUESTRAS',225,32,'#FFFFFF',2);
@@ -224,6 +232,8 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
                 section:logSection,moonCount:m.collected,activeMoon:true,hover:hover.startsWith('log:')?hover.slice(4):'',
                 onZone:(key,rect)=>dossier.hitZones.push({key:`log:${key}`,rect})});
         }
+        }
+        if (!changed || changed.has(controls)) {
         text(controls,'LUNA',96,45,accent,1);
         text(controls,'RECOLECCI\u00d3N DE MUESTRAS',148,23,'#BDEBF7',1);
         card(controls,complete?'OPERACI\u00d3N COMPLETA':started?'OPERACI\u00d3N EN PAUSA':'SIGUIENTE PASO',
@@ -233,7 +243,9 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         button(controls,'restart','REPETIR OPERACI\u00d3N',660,false,!onRestart || !m.ready || (!started && m.collected===0));
         if (onReturn) button(controls,'return','VOLVER A LA TIERRA',778);
         else text(controls,'Misi\u00f3n opcional / progreso independiente',790,23);
-        drawRoute();
+        }
+        if (!changed || changed.has(route)) drawRoute();
+        if (!changed || changed.has(status)) {
         text(status,'DESTINO',86,22,accent,1);
         text(status,'LUNA',119,32,'#FFFFFF',1);
         text(status,complete?'MUESTRAS RECUPERADAS':started?'RECOLECCI\u00d3N EN CURSO':'LISTA PARA INICIAR',174,19,'#BDEBF7',1);
@@ -244,7 +256,8 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
         c.fillStyle='#FFFFFF';c.font='900 32px system-ui';c.fillText(`${m.collected} / 3`,420,119);
         c.fillStyle='#BDEBF7';c.font='800 20px ui-monospace, monospace';c.fillText('MISI\u00d3N OPCIONAL',420,174);
         drawBar(c,838,155,306,m.collected/3*100,accent,'OPERACI\u00d3N');
-        {
+        }
+        if (!changed || changed.has(resume)) {
             const {ctx,canvas}=resume;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         const hovered = hover === "panels";
@@ -271,7 +284,7 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
             resume.hitZones.push({key:'panels',rect:{x:0,y:0,w:canvas.width,h:canvas.height}});
         }
         terminal.panelMesh.visible=!focus;
-        for(const p of panels) {p.mesh.visible=p===resume?focus:!focus;p.texture.needsUpdate=true;}
+        for(const p of panels) {p.mesh.visible=p===resume?focus:!focus;if(!changed || changed.has(p)) p.texture.needsUpdate=true;}
     }
     const meshes=[terminal.panelMesh,...panels.map(p=>p.mesh)];
     for(const mesh of meshes) {mesh.material.depthTest=false;mesh.material.depthWrite=false;mesh.material.toneMapped=false;mesh.renderOrder=100;}
@@ -306,7 +319,19 @@ export function createMoonInterface({ THREE, scene, renderer, getMission, recent
     }
     function hoverHit(h) {
         const key=keyFor(h);
-        if(key!==hover) {hover=key;state.hoverZone=key;drawTerminal();refresh();}
+        if(key!==hover) {
+            const meshFor = value => {
+                if (['exit','recenter','talk','grab'].includes(value)) return terminal.panelMesh;
+                return panels.find(p => p.hitZones.some(z =>
+                    (z.key || (z.type==='destination'?`destination:${z.index}`:
+                        ['moon','corona','pluto'].includes(z.type)?`${z.type}:`:'')) === value))?.mesh;
+            };
+            for (const value of [hover,key]) {
+                const mesh = value && meshFor(value);
+                if (mesh) hoverDirty.add(mesh);
+            }
+            hover=key;state.hoverZone=key;
+        }
         return !!h;
     }
     function scroll(ray,delta) {const h=hit(ray);if(h?.object!==terminal.panelMesh)return false;state.scrollY=Math.max(0,Math.min(state.scrollMax,state.scrollY+delta));state.autoScroll=false;drawTerminal();return true;}

@@ -1,5 +1,5 @@
 import { PANEL_DISTANCE_DEFAULT, PANEL_DISTANCE_XR_DEFAULT } from './config.js';
-﻿import { createPlutoTerrain } from './plutoTerrain.js';
+import { createPlutoTerrain } from './plutoTerrain.js';
 import { createPlutoInterface } from './plutoInterface.js';
 import { createPlutoProgress } from './plutoProgress.js';
 import { drawMoonExit } from './moonHud.js';
@@ -12,6 +12,8 @@ export function createPlutoExperience({ THREE, scene, camera, renderer, base, on
     let storage;try {storage=window.localStorage;} catch (_) {}
     const progress=createPlutoProgress(storage);
     const samples=[],objects=[];
+    let interactiveTargets=[];
+    let hoveredSample=null;
     let ready=false,error='',active=false,needsAnchor=true;
     const viewPosition=new THREE.Vector3(),viewRotation=new THREE.Quaternion();
     const hud=createPlutoInterface({THREE,scene:root,renderer,
@@ -21,8 +23,12 @@ export function createPlutoExperience({ THREE, scene, camera, renderer, base, on
     const ctx=canvas.getContext('2d');
     const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
     texture.minFilter=THREE.LinearFilter;texture.generateMipmaps=false;
-    const exit=new THREE.Mesh(new THREE.PlaneGeometry(.64,.256),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,toneMapped:false,side:THREE.DoubleSide}));
-    exit.renderOrder=100;root.add(exit);
+    const exit=new THREE.Mesh(new THREE.PlaneGeometry(1.1,.33),new THREE.MeshBasicMaterial({map:texture,transparent:true,depthTest:false,depthWrite:false,toneMapped:false,side:THREE.DoubleSide}));
+    // Match the main planets and keep the exit attached when the HUD moves.
+    exit.position.set(1.88,-1.72,.055);
+    exit.rotation.y=-.11;
+    exit.userData.vrExitControl=true;
+    exit.renderOrder=100;hud.group.add(exit);
     let exitBusy=false,exitHover=false,exitError=false;
     function drawExit() {exit.visible=renderer.xr.isPresenting;drawMoonExit(ctx,{busy:exitBusy,hovered:exitHover,error:exitError,immersive:renderer.xr.isPresenting});texture.needsUpdate=true;}
     function anchor(includeWorld=true) {
@@ -36,24 +42,18 @@ export function createPlutoExperience({ THREE, scene, camera, renderer, base, on
         const distance=renderer.xr.isPresenting?PANEL_DISTANCE_XR_DEFAULT:PANEL_DISTANCE_DEFAULT;
         hud.group.position.set(0,0,-distance).applyQuaternion(viewRotation).add(viewPosition);
         hud.group.quaternion.copy(viewRotation);
-        exit.position.set(1.45,-1.05,-3.2).applyQuaternion(viewRotation).add(viewPosition);
-        exit.quaternion.copy(viewRotation);
         root.updateMatrixWorld(true);
-        invalidateShadows();
-    }
-    // Lunar geometry and lighting are static between anchoring and sample changes.
-    function invalidateShadows() {
-        world.traverse(object => {
-            if (object.isLight && object.shadow) {
-                object.shadow.autoUpdate = false;
-                object.shadow.needsUpdate = true;
-            }
-        });
     }
     function refreshSamples() {
-        invalidateShadows();
-        const collected=new Set(progress.getState().collected);
-        for(const sample of samples) {sample.soporte.visible=progress.getState().started && !collected.has(sample.id);sample.aro.visible=sample.soporte.visible;}
+        const current=progress.getState();
+        const collected=new Set(current.collected);
+        for(const sample of samples) {
+            sample.soporte.visible=current.started && !collected.has(sample.id);
+            sample.aro.visible=sample.soporte.visible;
+        }
+        // Progress only changes on start, scan and restart, not every XR raycast.
+        interactiveTargets=objects.filter(o=>!o.userData.muestra ||
+            (current.started && !collected.has(o.userData.muestra.id)));
     }
     createPlutoTerrain({THREE,scene:root,world,renderer,base,samples,objects,onChange:message=>{
         error=message || '';ready=samples.length===3 && !error;
@@ -80,7 +80,12 @@ export function createPlutoExperience({ THREE, scene, camera, renderer, base, on
         const next=hit?.object===exit;
         if(next!==exitHover){exitHover=next;drawExit();}
         hud.hoverHit(hit);
-        for(const sample of samples) sample.aro.material.color.setHex(hit?.object.userData.muestra===sample?0xffffff:0xffcf72);
+        const sample=hit?.object.userData.muestra || null;
+        if(sample!==hoveredSample) {
+            if(hoveredSample) hoveredSample.aro.material.color.setHex(0xffcf72);
+            if(sample) sample.aro.material.color.setHex(0xffffff);
+            hoveredSample=sample;
+        }
     }
     drawExit();
     return {
@@ -103,8 +108,7 @@ export function createPlutoExperience({ THREE, scene, camera, renderer, base, on
         recenter:()=>anchor(false),handleHit,hoverHit,
         getInteractiveMeshes(){
             if(!active || !root.visible)return [];
-            const collected=new Set(progress.getState().collected);
-            return [...hud.getInteractiveMeshes(),...(exit.visible?[exit]:[]),...objects.filter(o=>!o.userData.muestra || (progress.getState().started && !collected.has(o.userData.muestra.id)))];
+            return [...hud.getInteractiveMeshes(),...(exit.visible?[exit]:[]),...interactiveTargets];
         },
         scroll:(ray,delta)=>hud.scroll(ray,delta)
     };
