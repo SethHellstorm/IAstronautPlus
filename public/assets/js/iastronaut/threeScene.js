@@ -1,3 +1,4 @@
+import { createAnaglyphMode } from "./anaglyphMode.js";
 import { isMoonUnlocked } from "./moonProgress.js";
 import { createMissionHaptics } from "./missionHaptics.js";
 import { APP_BASE, BG_IMAGE, MISSION_BG_DIR, MISSION_AUDIO_DIR, FLOATING_ASSETS, ASTRONAUT_SIDE_OFFSET, ASTRONAUT_SCALE_MULT, PANEL_DISTANCE_DEFAULT, PANEL_DISTANCE_XR_DEFAULT, HIT_ZONES, } from "./config.js";
@@ -853,6 +854,8 @@ function createDesktopHelp(renderer) {
             centerPanelDesktopLikeReload();
     }
     window.addEventListener("resize", onResize);
+    const anaglyph = createAnaglyphMode({renderer, scene, camera,
+        getPlutoHUD:()=>moonActive && !moonOpening && moon===optionalExperiences.get('pluto') ? moon.getInputContext().uiGroup : null});
     const clock = new THREE.Clock();
     renderer.setAnimationLoop((time, frame) => {
         const delta = Math.min(0.05, clock.getDelta());
@@ -862,7 +865,7 @@ function createDesktopHelp(renderer) {
         if (moonActive) {
             moon.update(frame);
             xr.tickXR?.();
-            renderer.render(scene, camera);
+            anaglyph.render();
             return;
         }
         director.update(delta);
@@ -878,6 +881,6 @@ function createDesktopHelp(renderer) {
         missionWorld.update(t, delta);
         missionPanels.update(t);
         syncVRExitVisibility();
-        renderer.render(scene, camera);
+        anaglyph.render();
     });
 })();
