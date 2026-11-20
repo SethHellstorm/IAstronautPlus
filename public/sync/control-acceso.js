@@ -28,7 +28,7 @@ const ControlAcceso = (() => {
         await detenerLocal();
         try { limpiar(); } catch (_) { /* El servidor invalida los tokens. */ }
         if (notificar) canal?.postMessage({tipo: 'cerrado', accesoId});
-        window.location.replace('./acceso.html');
+        window.location.replace('./chaleco.html');
     }
     if (canal) canal.onmessage = ({data}) => {
         if (data?.tipo === 'cerrado' && data.accesoId === accesoId) terminar(false);
@@ -134,7 +134,7 @@ const ControlAcceso = (() => {
                 await apagado;
                 try { limpiar(); } catch (_) { /* No se reutiliza la vinculacion del servidor. */ }
                 canal?.postMessage({tipo: 'cerrado', accesoId});
-                window.location.replace('./acceso.html');
+                window.location.replace('./chaleco.html');
             } catch (_) {
                 estado.textContent = 'No se pudo confirmar la salida. La sincronización local está detenida. Pulsa Reintentar.';
                 boton.textContent = 'Reintentar';

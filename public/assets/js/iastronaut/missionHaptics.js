@@ -13,7 +13,7 @@ export function createMissionHaptics({base = '', notify = () => {}} = {}) {
         for (const key of Object.keys(sessionStorage)) {
             if (key.startsWith('iastronaut_sync_')) sessionStorage.removeItem(key);
         }
-        window.location.replace(`${base}/sync/acceso.html`);
+        window.location.replace(`${base}/sync/chaleco.html`);
     }
     if (!session || !/^[a-f0-9]{64}$/.test(session.token_emisor || '')) {
         finish(); return () => {};

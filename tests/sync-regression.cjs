@@ -116,13 +116,13 @@ test('cerrar bloquea actividad antes del HTTP y permite reintentar fallo sin rea
     env.ctx.fetch=async()=>{calls++;assert.equal(env.run('ControlAcceso.terminado'),true);if(fail)throw new Error('red');return response({cerrado:true});};
     env.run(read('control-acceso.js'));let stopped=false;env.window.addEventListener('sync:acceso-terminado',()=>stopped=true);
     await env.run('ControlAcceso.cerrar()');assert.equal(stopped,true);assert.equal(env.window.redirect,undefined);
-    fail=false;await env.elements.get('cerrarAcceso').onclick();assert.equal(calls,2);assert.equal(env.window.redirect,'./acceso.html');
+    fail=false;await env.elements.get('cerrarAcceso').onclick();assert.equal(calls,2);assert.equal(env.window.redirect,'./chaleco.html');
 });
 test('redireccion espera apagado Bluetooth antes de salir',async()=>{
     const env=environment();env.ctx.fetch=async()=>response({codigo:'ACCESO_REQUERIDO'},401);env.run(read('control-acceso.js'));
     let finish;env.window.addEventListener('sync:acceso-terminado',e=>e.detail.esperas.push(new Promise(resolve=>finish=resolve)));
     await assert.rejects(env.run("ControlAcceso.solicitar('/test')"));assert.equal(env.window.redirect,undefined);
-    finish();for(let i=0;i<5;i++)await Promise.resolve();assert.equal(env.window.redirect,'./acceso.html');
+    finish();for(let i=0;i<5;i++)await Promise.resolve();assert.equal(env.window.redirect,'./chaleco.html');
 });
 test('cada aceptacion se confirma antes del siguiente comando',async()=>{
     let n=0;const r=receiver({events:[event(1),event(2)],send:async()=>{if(++n===2)throw new Error('timeout');}});
